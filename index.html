@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rentshare — Rooms & Shortlets in Lagos</title>
+<meta name="description" content="Rent or share a room, from anyone nearby. ID-verified hosts and guests, gender-matched Shared Space stays.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="container row-between">
+    <a href="/" class="brand">
+      <svg width="26" height="26" viewBox="-10 -10 120 120" aria-hidden="true">
+        <rect style="mix-blend-mode:multiply" x="14" y="18" width="46" height="60" rx="12" fill="#F2B134" transform="rotate(-10 37 48)"/>
+        <rect style="mix-blend-mode:multiply" x="40" y="22" width="46" height="60" rx="12" fill="#2F8A7A" transform="rotate(10 63 52)"/>
+      </svg>
+      rentshare<span class="dot">.</span>
+    </a>
+    <nav class="nav-actions">
+      <button class="icon-btn" aria-label="Notifications">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      </button>
+      <a class="btn-outline" href="/list-your-space.html">List your space</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+  <section class="hero container">
+    <p class="location-pill">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 22s7-7.58 7-13a7 7 0 1 0-14 0c0 5.42 7 13 7 13z"/><circle cx="12" cy="9" r="2.4"/></svg>
+      Searching in <b>Lagos</b>
+    </p>
+    <h1>Rent or share a room, from anyone nearby.</h1>
+
+    <div class="search-bar">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <input type="text" placeholder="Search by area — Lekki, Yaba, Ikeja…" aria-label="Search by area">
+    </div>
+
+    <div class="type-tabs" role="tablist" aria-label="Stay type">
+      <button class="type-tab active" data-tier="">All stays<span class="sub">Rooms + shared</span></button>
+      <button class="type-tab" data-tier="private_room">Private Room<span class="sub">Your own locked room</span></button>
+      <button class="type-tab" data-tier="shared_space">Shared Space<span class="sub">Budget, gender-matched</span></button>
+      <button class="type-tab" data-tier="shared_room_with_host">Shared Room<span class="sub">With the host, opt-in</span></button>
+    </div>
+  </section>
+
+  <section class="trust-strip container">
+    <div class="trust-item">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.4 9 8 11 4.6-2 8-6 8-11V5Z"/><path d="m9 12 2 2 4-4"/></svg>
+      <span>ID-verified hosts &amp; guests</span>
+    </div>
+    <div class="trust-item">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <span>Gender-matched shared spaces</span>
+    </div>
+    <div class="trust-item">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="10" width="18" height="11" rx="2"/><path d="M7 10V7a5 5 0 0 1 10 0v3"/></svg>
+      <span>Secure escrow-style pay</span>
+    </div>
+  </section>
+
+  <section class="container">
+    <div class="area-scroll" role="tablist" aria-label="Filter by area">
+      <button class="area-chip active" data-area="">All areas</button>
+      <button class="area-chip" data-area="Lekki">Lekki</button>
+      <button class="area-chip" data-area="Yaba">Yaba</button>
+      <button class="area-chip" data-area="Ikeja">Ikeja</button>
+      <button class="area-chip" data-area="Victoria Island">Victoria Island</button>
+      <button class="area-chip" data-area="Surulere">Surulere</button>
+    </div>
+  </section>
+
+  <section class="container listings-section">
+    <div class="section-head">
+      <h2>Available near you</h2>
+    </div>
+    <div id="listings" class="listing-list" aria-live="polite">
+      <p class="loading-note">Loading listings…</p>
+    </div>
+  </section>
+
+  <section class="container steps-panel">
+    <h3>How Rentshare keeps stays safe</h3>
+    <div class="step-row">
+      <div class="step-num">1</div>
+      <p><b>Every host and guest is ID-verified</b> before a booking can be made.</p>
+    </div>
+    <div class="step-row">
+      <div class="step-num">2</div>
+      <p><b>Shared Space stays are gender-matched</b> automatically — you'll never see a listing that doesn't match.</p>
+    </div>
+    <div class="step-row">
+      <div class="step-num">3</div>
+      <p><b>Support is one tap away</b> for the full length of every stay.</p>
+    </div>
+  </section>
+</main>
+
+<footer class="tabbar">
+  <a href="/" class="tab active">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-7 9 7"/><path d="M5 9.5V21h14V9.5"/></svg>
+    Home
+  </a>
+  <a href="/search.html" class="tab">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+    Search
+  </a>
+  <a href="/bookings.html" class="tab">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18M8 2v4M16 2v4"/></svg>
+    Bookings
+  </a>
+  <a href="/chats.html" class="tab">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-8.9 8.4 8.5 8.5 0 0 1-3.8-.9L3 20l1-4.5A8.4 8.4 0 1 1 21 11.5Z"/></svg>
+    Chats
+  </a>
+  <a href="/profile.html" class="tab">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+    Profile
+  </a>
+</footer>
+
+<script src="/app.js"></script>
+</body>
+</html>

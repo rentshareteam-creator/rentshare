@@ -9,4 +9,5 @@ binding = "ASSETS"
 [[d1_databases]]
 binding = "DB"
 database_name = "rentshare-db"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "3a6e52c1-5c00-4e1f-9c01-91a24a84f134"
+

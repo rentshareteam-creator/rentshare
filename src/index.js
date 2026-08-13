@@ -1,130 +1,193 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Rentshare — Rooms & Shortlets in Lagos</title>
-<meta name="description" content="Rent or share a room, from anyone nearby. ID-verified hosts and guests, gender-matched Shared Space stays.">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/styles.css">
-</head>
-<body>
+/**
+ * Rentshare — Cloudflare Worker entry point.
+ *
+ * Serves the static frontend from /public (via the ASSETS binding)
+ * and exposes a small API surface under /api/* backed by D1.
+ *
+ * This is a starting skeleton — each endpoint below maps to a step
+ * in the finalized flow spec / database schema, with the real
+ * business logic (timing jobs, name-matching, Paystack calls) left
+ * as clearly marked TODOs to fill in next.
+ */
 
-<header class="topbar">
-  <div class="container row-between">
-    <a href="/" class="brand">
-      <svg width="26" height="26" viewBox="-10 -10 120 120" aria-hidden="true">
-        <rect style="mix-blend-mode:multiply" x="14" y="18" width="46" height="60" rx="12" fill="#F2B134" transform="rotate(-10 37 48)"/>
-        <rect style="mix-blend-mode:multiply" x="40" y="22" width="46" height="60" rx="12" fill="#2F8A7A" transform="rotate(10 63 52)"/>
-      </svg>
-      rentshare<span class="dot">.</span>
-    </a>
-    <nav class="nav-actions">
-      <button class="icon-btn" aria-label="Notifications">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
-      </button>
-      <a class="btn-outline" href="/list-your-space.html">List your space</a>
-    </nav>
-  </div>
-</header>
+export default {
+  async fetch(request, env, ctx) {
+    const url = new URL(request.url);
 
-<main>
-  <section class="hero container">
-    <p class="location-pill">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 22s7-7.58 7-13a7 7 0 1 0-14 0c0 5.42 7 13 7 13z"/><circle cx="12" cy="9" r="2.4"/></svg>
-      Searching in <b>Lagos</b>
-    </p>
-    <h1>Rent or share a room, from anyone nearby.</h1>
+    if (url.pathname.startsWith('/api/')) {
+      return handleApi(request, env, url);
+    }
 
-    <div class="search-bar">
-      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
-      <input type="text" placeholder="Search by area — Lekki, Yaba, Ikeja…" aria-label="Search by area">
-    </div>
+    // Everything else falls through to the static site in /public
+    return env.ASSETS.fetch(request);
+  },
+};
 
-    <div class="type-tabs" role="tablist" aria-label="Stay type">
-      <button class="type-tab active" data-tier="">All stays<span class="sub">Rooms + shared</span></button>
-      <button class="type-tab" data-tier="private_room">Private Room<span class="sub">Your own locked room</span></button>
-      <button class="type-tab" data-tier="shared_space">Shared Space<span class="sub">Budget, gender-matched</span></button>
-      <button class="type-tab" data-tier="shared_room_with_host">Shared Room<span class="sub">With the host, opt-in</span></button>
-    </div>
-  </section>
+async function handleApi(request, env, url) {
+  const { pathname } = url;
 
-  <section class="trust-strip container">
-    <div class="trust-item">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.4 9 8 11 4.6-2 8-6 8-11V5Z"/><path d="m9 12 2 2 4-4"/></svg>
-      <span>ID-verified hosts &amp; guests</span>
-    </div>
-    <div class="trust-item">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-      <span>Gender-matched shared spaces</span>
-    </div>
-    <div class="trust-item">
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="10" width="18" height="11" rx="2"/><path d="M7 10V7a5 5 0 0 1 10 0v3"/></svg>
-      <span>Secure escrow-style pay</span>
-    </div>
-  </section>
+  // GET /api/listings?city=Lagos&tier=shared_space&gender=female
+  if (pathname === '/api/listings' && request.method === 'GET') {
+    return listListings(request, env, url);
+  }
 
-  <section class="container">
-    <div class="area-scroll" role="tablist" aria-label="Filter by area">
-      <button class="area-chip active" data-area="">All areas</button>
-      <button class="area-chip" data-area="Lekki">Lekki</button>
-      <button class="area-chip" data-area="Yaba">Yaba</button>
-      <button class="area-chip" data-area="Ikeja">Ikeja</button>
-      <button class="area-chip" data-area="Victoria Island">Victoria Island</button>
-      <button class="area-chip" data-area="Surulere">Surulere</button>
-    </div>
-  </section>
+  // GET /api/listings/:id
+  const listingMatch = pathname.match(/^\/api\/listings\/([\w-]+)$/);
+  if (listingMatch && request.method === 'GET') {
+    return getListing(env, listingMatch[1]);
+  }
 
-  <section class="container listings-section">
-    <div class="section-head">
-      <h2>Available near you</h2>
-    </div>
-    <div id="listings" class="listing-list" aria-live="polite">
-      <p class="loading-note">Loading listings…</p>
-    </div>
-  </section>
+  // POST /api/bookings  — creates a booking (Step A in the flow spec)
+  if (pathname === '/api/bookings' && request.method === 'POST') {
+    return createBooking(request, env);
+  }
 
-  <section class="container steps-panel">
-    <h3>How Rentshare keeps stays safe</h3>
-    <div class="step-row">
-      <div class="step-num">1</div>
-      <p><b>Every host and guest is ID-verified</b> before a booking can be made.</p>
-    </div>
-    <div class="step-row">
-      <div class="step-num">2</div>
-      <p><b>Shared Space stays are gender-matched</b> automatically — you'll never see a listing that doesn't match.</p>
-    </div>
-    <div class="step-row">
-      <div class="step-num">3</div>
-      <p><b>Support is one tap away</b> for the full length of every stay.</p>
-    </div>
-  </section>
-</main>
+  // POST /api/users/verify-bank — Paystack Resolve cross-check (Step A″)
+  if (pathname === '/api/users/verify-bank' && request.method === 'POST') {
+    return verifyBank(request, env);
+  }
 
-<footer class="tabbar">
-  <a href="/" class="tab active">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-7 9 7"/><path d="M5 9.5V21h14V9.5"/></svg>
-    Home
-  </a>
-  <a href="/search.html" class="tab">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
-    Search
-  </a>
-  <a href="/bookings.html" class="tab">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18M8 2v4M16 2v4"/></svg>
-    Bookings
-  </a>
-  <a href="/chats.html" class="tab">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-8.9 8.4 8.5 8.5 0 0 1-3.8-.9L3 20l1-4.5A8.4 8.4 0 1 1 21 11.5Z"/></svg>
-    Chats
-  </a>
-  <a href="/profile.html" class="tab">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg>
-    Profile
-  </a>
-</footer>
+  return json({ error: 'Not found' }, 404);
+}
 
-<script src="/app.js"></script>
-</body>
-</html>
+/**
+ * Gender-matching enforcement happens HERE, at query time — a guest
+ * never even sees a listing that doesn't match their gender for the
+ * Shared Space tier. This is the DB-query-level implementation of
+ * Step A from the flow spec.
+ */
+async function listListings(request, env, url) {
+  const city = url.searchParams.get('city');
+  const tier = url.searchParams.get('tier'); // 'private_room' | 'shared_space'
+  const gender = url.searchParams.get('gender'); // required if tier=shared_space
+
+  let query = `SELECT * FROM listings WHERE status = 'active'`;
+  const binds = [];
+
+  if (city) {
+    query += ` AND city = ?`;
+    binds.push(city);
+  }
+  if (tier) {
+    query += ` AND tier = ?`;
+    binds.push(tier);
+  }
+  if ((tier === 'shared_space' || tier === 'shared_room_with_host') && gender) {
+    const allocation = gender === 'female' ? 'female_only' : 'male_only';
+    query += ` AND gender_allocation = ?`;
+    binds.push(allocation);
+  }
+
+  const { results } = await env.DB.prepare(query).bind(...binds).all();
+  return json({ listings: results });
+}
+
+async function getListing(env, id) {
+  const listing = await env.DB.prepare(`SELECT * FROM listings WHERE id = ?`).bind(id).first();
+  if (!listing) return json({ error: 'Listing not found' }, 404);
+  return json({ listing });
+}
+
+/**
+ * Creates a booking. Enforces the gender-match rule as a hard
+ * application-level check before insert (defense in depth — the
+ * primary enforcement is the search filter above, this is the
+ * backstop in case a listing ID is booked directly).
+ *
+ * TODO: wire up Paystack payment initialization here, and set
+ * is_same_day_booking based on check_in_date vs now() to drive the
+ * presence-confirmation timing rules from the flow spec.
+ */
+async function createBooking(request, env) {
+  const body = await request.json();
+  const { listing_id, guest_id, check_in_date, check_out_date, check_in_time, room_share_consent } = body;
+
+  const listing = await env.DB.prepare(`SELECT * FROM listings WHERE id = ?`).bind(listing_id).first();
+  if (!listing) return json({ error: 'Listing not found' }, 404);
+
+  const guest = await env.DB.prepare(`SELECT * FROM users WHERE id = ?`).bind(guest_id).first();
+  if (!guest) return json({ error: 'Guest not found' }, 404);
+
+  // Hard gender-match check — applies to BOTH shared tiers, mirrors the CHECK constraint intent from the schema notes
+  if (listing.tier === 'shared_space' || listing.tier === 'shared_room_with_host') {
+    const requiredGender = listing.gender_allocation === 'female_only' ? 'female' : 'male';
+    if (guest.gender !== requiredGender) {
+      return json({ error: 'This listing does not match your gender allocation.' }, 403);
+    }
+  }
+
+  // Step A''' — Shared Room (with Host) requires standalone, explicit guest consent.
+  // Cannot be defaulted, bundled, or skipped — the booking is rejected without it.
+  if (listing.tier === 'shared_room_with_host' && room_share_consent !== true) {
+    return json({ error: 'Explicit consent is required to book a room shared directly with the host.' }, 400);
+  }
+
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+  const isSameDay = check_in_date === now.slice(0, 10);
+
+  await env.DB.prepare(`
+    INSERT INTO bookings (
+      id, listing_id, guest_id, host_id, check_in_date, check_out_date,
+      check_in_time, guest_gender_snapshot, is_same_day_booking, status,
+      amount_total, platform_commission, host_payout_amount,
+      room_share_consent, room_share_consent_at, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'requested', ?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    id, listing_id, guest_id, listing.host_id, check_in_date, check_out_date,
+    check_in_time, guest.gender, isSameDay ? 1 : 0,
+    0, 0, 0, // TODO: compute real amounts from listing.price_per_night * nights, minus commission
+    listing.tier === 'shared_room_with_host' ? 1 : null,
+    listing.tier === 'shared_room_with_host' ? now : null,
+    now, now
+  ).run();
+
+  return json({ booking_id: id, status: 'requested' }, 201);
+}
+
+/**
+ * Step A″ from the flow spec — Paystack Resolve Account Number
+ * cross-check. Requires PAYSTACK_SECRET_KEY as a Worker secret
+ * (wrangler secret put PAYSTACK_SECRET_KEY).
+ */
+async function verifyBank(request, env) {
+  const { account_number, bank_code, full_name } = await request.json();
+
+  const resolveUrl = `https://api.paystack.co/bank/resolve?account_number=${account_number}&bank_code=${bank_code}`;
+  const resp = await fetch(resolveUrl, {
+    headers: { Authorization: `Bearer ${env.PAYSTACK_SECRET_KEY}` },
+  });
+  const data = await resp.json();
+
+  if (!data.status) {
+    return json({ error: 'Could not resolve account. Check the details and try again.' }, 400);
+  }
+
+  const resolvedName = data.data.account_name;
+
+  // TODO: replace this naive check with real fuzzy matching
+  // (e.g. Jaro-Winkler or token-set comparison) per the flow spec's
+  // "bank name vs ID document name" required-match rule.
+  const isCloseMatch = namesRoughlyMatch(resolvedName, full_name);
+
+  return json({
+    resolved_name: resolvedName,
+    match_status: isCloseMatch ? 'matched' : 'flagged',
+  });
+}
+
+function namesRoughlyMatch(a, b) {
+  const normalize = (s) => s.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/).filter(Boolean);
+  const tokensA = new Set(normalize(a));
+  const tokensB = new Set(normalize(b));
+  let overlap = 0;
+  for (const t of tokensA) if (tokensB.has(t)) overlap++;
+  return overlap >= 2; // at least first + last name token overlap
+}
+
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}

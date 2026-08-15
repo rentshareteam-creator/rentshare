@@ -89,7 +89,34 @@ async function handleApi(request, env, url) {
     return authLogout(request, env);
   }
 
+  // GET /api/auth/me — current logged-in user's info
+  if (pathname === '/api/auth/me' && request.method === 'GET') {
+    return authMe(request, env);
+  }
+
+  // GET /api/users/me/listings — logged-in user's own listings, any status
+  if (pathname === '/api/users/me/listings' && request.method === 'GET') {
+    return myListings(request, env);
+  }
+
   return json({ error: 'Not found' }, 404);
+}
+
+async function authMe(request, env) {
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: 'Not logged in.' }, 401);
+
+  // Never send password_hash back to the client
+  const { password_hash, ...safeUser } = user;
+  return json({ user: safeUser });
+}
+
+async function myListings(request, env) {
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: 'Not logged in.' }, 401);
+
+  const { results } = await env.DB.prepare(`SELECT * FROM listings WHERE host_id = ? ORDER BY created_at DESC`).bind(user.id).all();
+  return json({ listings: results });
 }
 
 /**
@@ -341,24 +368,28 @@ async function getListing(env, id) {
 }
 
 /**
- * Creates a booking. Enforces the gender-match rule as a hard
- * application-level check before insert (defense in depth — the
- * primary enforcement is the search filter above, this is the
- * backstop in case a listing ID is booked directly).
+ * Creates a booking. Guest is derived from the logged-in session, NOT
+ * a client-supplied guest_id — trusting a client-supplied ID would let
+ * anyone book under someone else's identity. Also computes real
+ * pricing (nights × rate, minus platform commission) instead of the
+ * earlier placeholder zeros.
  *
- * TODO: wire up Paystack payment initialization here, and set
- * is_same_day_booking based on check_in_date vs now() to drive the
- * presence-confirmation timing rules from the flow spec.
+ * TODO: wire up actual Paystack payment initialization here — this
+ * still just records the booking, it doesn't charge or hold funds yet.
  */
 async function createBooking(request, env) {
+  const guest = await getSessionUser(request, env);
+  if (!guest) return json({ error: 'Please log in to book a stay.' }, 401);
+
   const body = await request.json();
-  const { listing_id, guest_id, check_in_date, check_out_date, check_in_time, room_share_consent } = body;
+  const { listing_id, check_in_date, check_out_date, check_in_time, room_share_consent } = body;
+
+  if (!listing_id || !check_in_date || !check_out_date) {
+    return json({ error: 'Missing booking details.' }, 400);
+  }
 
   const listing = await env.DB.prepare(`SELECT * FROM listings WHERE id = ?`).bind(listing_id).first();
-  if (!listing) return json({ error: 'Listing not found' }, 404);
-
-  const guest = await env.DB.prepare(`SELECT * FROM users WHERE id = ?`).bind(guest_id).first();
-  if (!guest) return json({ error: 'Guest not found' }, 404);
+  if (!listing || listing.status !== 'active') return json({ error: 'Listing not found or not available.' }, 404);
 
   // Hard gender-match check — applies to BOTH shared tiers, mirrors the CHECK constraint intent from the schema notes
   if (listing.tier === 'shared_space' || listing.tier === 'shared_room_with_host') {
@@ -374,6 +405,18 @@ async function createBooking(request, env) {
     return json({ error: 'Explicit consent is required to book a room shared directly with the host.' }, 400);
   }
 
+  const checkIn = new Date(check_in_date);
+  const checkOut = new Date(check_out_date);
+  const nights = Math.round((checkOut - checkIn) / (1000 * 60 * 60 * 24));
+  if (nights < 1) return json({ error: 'Check-out must be after check-in.' }, 400);
+  if (listing.max_stay_nights && nights > listing.max_stay_nights) {
+    return json({ error: `This listing allows a maximum stay of ${listing.max_stay_nights} nights.` }, 400);
+  }
+
+  const amountTotal = listing.price_per_night * nights;
+  const platformCommission = Math.round(amountTotal * 0.12); // 12% commission, per the earlier pricing decision
+  const hostPayoutAmount = amountTotal - platformCommission;
+
   const id = crypto.randomUUID();
   const now = new Date().toISOString();
   const isSameDay = check_in_date === now.slice(0, 10);
@@ -386,27 +429,28 @@ async function createBooking(request, env) {
       room_share_consent, room_share_consent_at, created_at, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'requested', ?, ?, ?, ?, ?, ?, ?)
   `).bind(
-    id, listing_id, guest_id, listing.host_id, check_in_date, check_out_date,
-    check_in_time, guest.gender, isSameDay ? 1 : 0,
-    0, 0, 0, // TODO: compute real amounts from listing.price_per_night * nights, minus commission
+    id, listing_id, guest.id, listing.host_id, check_in_date, check_out_date,
+    check_in_time || '14:00', guest.gender, isSameDay ? 1 : 0,
+    amountTotal, platformCommission, hostPayoutAmount,
     listing.tier === 'shared_room_with_host' ? 1 : null,
     listing.tier === 'shared_room_with_host' ? now : null,
     now, now
   ).run();
 
-  return json({ booking_id: id, status: 'requested' }, 201);
+  return json({ booking_id: id, status: 'requested', amount_total: amountTotal, nights }, 201);
 }
 
 /**
- * Host submits the "List your space" form. Finds-or-creates the host's
- * user record by phone, but if that phone already has a password set
- * (a real account), requires a valid logged-in session for that exact
- * user before allowing the listing — see the check below.
+ * Host submits the "List your space" form. No login system exists yet,
+ * so this finds-or-creates the host's user record (matched by phone,
+ * since that's the one field guaranteed present) and creates the
+ * listing in the same request.
  *
  * New listings save with status='pending_review', NOT 'active' —
  * verification (Paystack Resolve name-match, ID checks) isn't wired
  * into this flow yet, so nothing should go live automatically until
- * that's built.
+ * that's built. A manual review step (or an admin approval endpoint,
+ * still TODO) is what flips status to 'active'.
  */
 async function createListing(request, env) {
   const body = await request.json();

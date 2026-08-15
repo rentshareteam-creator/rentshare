@@ -176,6 +176,26 @@
     <div class="field">
       <div class="toggle-row"><span class="tt">Alcohol allowed</span><input type="checkbox" name="allows_alcohol"></div>
     </div>
+    <div class="field">
+      <div class="toggle-row"><span class="tt">Visitors allowed</span><input type="checkbox" name="allows_visitors"></div>
+    </div>
+    <div class="field">
+      <div class="toggle-row"><span class="tt">Extra guests beyond booking allowed</span><input type="checkbox" name="allows_extra_guests"></div>
+    </div>
+    <div class="field">
+      <div class="toggle-row"><span class="tt">Parties/gatherings allowed</span><input type="checkbox" name="allows_parties"></div>
+    </div>
+    <div class="field">
+      <div class="toggle-row">
+        <span class="tt">Quiet hours enforced</span>
+        <input type="checkbox" name="quiet_hours_enabled" id="quiet-hours-toggle">
+      </div>
+    </div>
+    <div class="field" id="quiet-hours-field" style="display:none;">
+      <label>Quiet hours</label>
+      <span class="fs">e.g. 10pm – 7am</span>
+      <input type="text" name="quiet_hours" placeholder="10:00 PM – 7:00 AM">
+    </div>
 
     <button type="submit" class="cta" id="submit-btn">Submit listing for review</button>
     <div class="status-msg" id="status-msg"></div>
@@ -207,6 +227,12 @@
     });
   });
 
+  const quietHoursToggle = document.getElementById('quiet-hours-toggle');
+  const quietHoursField = document.getElementById('quiet-hours-field');
+  quietHoursToggle.addEventListener('change', () => {
+    quietHoursField.style.display = quietHoursToggle.checked ? 'block' : 'none';
+  });
+
   const form = document.getElementById('listing-form');
   const submitBtn = document.getElementById('submit-btn');
   const statusMsg = document.getElementById('status-msg');
@@ -223,6 +249,10 @@
     payload.allows_smoking = form.allows_smoking.checked;
     payload.allows_pets = form.allows_pets.checked;
     payload.allows_alcohol = form.allows_alcohol.checked;
+    payload.allows_visitors = form.allows_visitors.checked;
+    payload.allows_extra_guests = form.allows_extra_guests.checked;
+    payload.allows_parties = form.allows_parties.checked;
+    payload.quiet_hours_enabled = form.quiet_hours_enabled.checked;
 
     try {
       const res = await fetch('/api/listings', {

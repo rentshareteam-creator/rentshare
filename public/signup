@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign up — Rentshare</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+<style>
+  .form-wrap{ max-width:var(--max-width); margin:0 auto; padding:20px 20px 60px; }
+  .back-btn{
+    width:34px; height:34px; border-radius:10px; background:var(--surface);
+    border:1px solid var(--line); display:flex; align-items:center; justify-content:center;
+    margin-bottom:16px; color:var(--ink);
+  }
+  h1{ font-family:'Space Grotesk',sans-serif; font-size:22px; font-weight:700; margin-bottom:4px; }
+  .lede{ color:var(--muted); font-size:13px; margin-bottom:24px; }
+  .field{
+    background:var(--surface); border:1px solid var(--line); border-radius:14px;
+    padding:13px 15px; margin-bottom:10px;
+  }
+  .field label{ display:block; font-size:12.5px; font-weight:600; margin-bottom:6px; }
+  .field .fs{ display:block; font-size:11px; color:var(--muted-2); margin-bottom:6px; }
+  .field input, .field select{
+    width:100%; background:transparent; border:none; outline:none;
+    font-size:14px; font-family:'Inter',sans-serif; color:var(--ink);
+  }
+  .cta{
+    width:100%; background:var(--yellow); color:#161006; text-align:center;
+    font-weight:700; font-size:14.5px; border-radius:14px; padding:14px;
+    font-family:'Space Grotesk',sans-serif; border:none; margin-top:16px; cursor:pointer;
+  }
+  .cta:disabled{ opacity:0.6; }
+  .status-msg{ font-size:13px; margin-top:12px; padding:12px 14px; border-radius:12px; display:none; }
+  .status-msg.error{ display:block; background:rgba(209,74,36,0.1); color:#B03A1A; }
+  .status-msg.success{ display:block; background:rgba(47,138,122,0.1); color:#1F6E5E; }
+  .swap-link{ text-align:center; margin-top:18px; font-size:13px; color:var(--muted); }
+  .swap-link a{ color:var(--yellow-text); font-weight:600; }
+</style>
+</head>
+<body>
+
+<div class="form-wrap">
+  <a href="/" class="back-btn" aria-label="Back">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+  </a>
+  <h1>Create your account</h1>
+  <p class="lede">Needed to book a stay or list your space.</p>
+
+  <form id="signup-form">
+    <div class="field">
+      <label>Full name</label>
+      <input type="text" name="full_name" required placeholder="As it appears on your ID">
+    </div>
+    <div class="field">
+      <label>Phone number</label>
+      <input type="tel" name="phone" required placeholder="080...">
+    </div>
+    <div class="field">
+      <label>Gender</label>
+      <select name="gender" required>
+        <option value="">Select</option>
+        <option value="female">Female</option>
+        <option value="male">Male</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Bank account number</label>
+      <span class="fs">Used for identity verification and payouts if you host</span>
+      <input type="text" name="bank_account_number" required placeholder="10-digit account number">
+    </div>
+    <div class="field">
+      <label>Bank code</label>
+      <span class="fs">e.g. 058 for GTBank, 044 for Access</span>
+      <input type="text" name="bank_code" required placeholder="e.g. 058">
+    </div>
+    <div class="field">
+      <label>Password</label>
+      <input type="password" name="password" required minlength="8" placeholder="At least 8 characters">
+    </div>
+
+    <button type="submit" class="cta" id="submit-btn">Create account</button>
+    <div class="status-msg" id="status-msg"></div>
+  </form>
+
+  <p class="swap-link">Already have an account? <a href="/login.html">Log in</a></p>
+</div>
+
+<script>
+  const form = document.getElementById('signup-form');
+  const submitBtn = document.getElementById('submit-btn');
+  const statusMsg = document.getElementById('status-msg');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Creating account…';
+    statusMsg.className = 'status-msg';
+
+    const formData = new FormData(form);
+    const payload = Object.fromEntries(formData.entries());
+
+    try {
+      const res = await fetch('/api/auth/signup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+
+      if (!res.ok) throw new Error(data.error || 'Something went wrong');
+
+      localStorage.setItem('rentshare_session', data.session_token);
+      statusMsg.className = 'status-msg success';
+      statusMsg.textContent = 'Account created — redirecting…';
+      setTimeout(() => { window.location.href = '/'; }, 900);
+    } catch (err) {
+      statusMsg.className = 'status-msg error';
+      statusMsg.textContent = err.message;
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Create account';
+    }
+  });
+</script>
+</body>
+</html>

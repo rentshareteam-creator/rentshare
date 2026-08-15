@@ -51,6 +51,20 @@
   .action-btn:disabled{ opacity:0.6; }
 
   .empty-note{ color:var(--muted-2); font-size:13px; text-align:center; padding:60px 20px; }
+
+  .presence-card{
+    background:#FDF1D9; border:1.5px solid var(--yellow); border-radius:16px;
+    padding:14px 16px; margin-bottom:16px;
+  }
+  .presence-card-title{ font-size:13px; font-weight:700; color:var(--yellow-text); margin-bottom:4px; }
+  .presence-card-sub{ font-size:12px; color:var(--ink); margin-bottom:12px; line-height:1.4; }
+  .presence-actions{ display:flex; gap:8px; }
+  .presence-btn{
+    flex:1; padding:10px; border-radius:10px; font-weight:700; font-size:12.5px; cursor:pointer;
+    font-family:'Space Grotesk',sans-serif; border:none;
+  }
+  .presence-btn.same{ background:var(--teal); color:#fff; }
+  .presence-btn.changed{ background:transparent; border:1px solid var(--coral); color:var(--coral); }
 </style>
 </head>
 <body>
@@ -62,6 +76,8 @@
     </a>
     <h1>Bookings</h1>
   </div>
+
+  <div id="presence-alert"></div>
 
   <div class="tabs">
     <div class="tab-btn active" data-view="guest">My Trips</div>
@@ -81,6 +97,54 @@
     window.location.href = '/login.html';
   } else {
     loadBookings();
+    loadPresencePending();
+  }
+
+  async function loadPresencePending() {
+    const alertBox = document.getElementById('presence-alert');
+    try {
+      const res = await fetch('/api/users/me/presence-pending', { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return;
+      const data = await res.json();
+      const pending = data.pending || [];
+
+      if (pending.length === 0) {
+        alertBox.innerHTML = '';
+        return;
+      }
+
+      alertBox.innerHTML = pending.map((p) => `
+        <div class="presence-card">
+          <div class="presence-card-title">Confirm who's home — ${escapeHtml(p.listing_title)}</div>
+          <div class="presence-card-sub">A guest is checking in soon. Is the household still the same as what you listed?</div>
+          <div class="presence-actions">
+            <button class="presence-btn same" onclick="respondPresence('${p.presence_id}', 'same_as_listed')">Same as listed</button>
+            <button class="presence-btn changed" onclick="respondPresence('${p.presence_id}', 'changed')">It's changed</button>
+          </div>
+        </div>
+      `).join('');
+    } catch (err) {
+      // Silent — this is a secondary panel, not worth breaking the whole page over.
+    }
+  }
+
+  async function respondPresence(presenceId, response) {
+    if (response === 'changed') {
+      const confirmed = confirm("This will flag the booking for review since the household no longer matches what's listed. Continue?");
+      if (!confirmed) return;
+    }
+    try {
+      const res = await fetch(`/api/presence/${presenceId}/respond`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ response }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      await loadPresencePending();
+      await loadBookings();
+    } catch (err) {
+      alert("Couldn't submit your response — try again.");
+    }
   }
 
   document.querySelectorAll('.tab-btn').forEach((btn) => {

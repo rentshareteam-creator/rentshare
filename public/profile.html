@@ -93,7 +93,15 @@
 
   async function loadProfile() {
     try {
-      const res = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } });
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
+      const res = await fetch('/api/auth/me', {
+        headers: { Authorization: `Bearer ${token}` },
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
       if (res.status === 401) {
         localStorage.removeItem('rentshare_session');
         window.location.href = '/login.html';
@@ -103,4 +111,100 @@
       renderProfile(data.user);
       loadListings();
     } catch (err) {
-      content.innerHTML = '<p class="empty-note">Couldn\'t load your profile — try again.
+      const isTimeout = err.name === 'AbortError';
+      content.innerHTML = `<p class="empty-note">${isTimeout ? 'This is taking longer than expected — check your connection and' : "Couldn't load your profile —"} <a href="#" onclick="location.reload(); return false;" style="color:var(--yellow-text); font-weight:600;">try again</a>.</p>`;
+    }
+  }
+
+  function renderProfile(user) {
+    const initial = user.full_name ? user.full_name.charAt(0).toUpperCase() : '?';
+    const isVerified = user.verification_status && user.verification_status !== 'unverified';
+
+    content.innerHTML = `
+      <div class="avatar-card">
+        <div class="avatar-circle">${initial}</div>
+        <div>
+          <div class="avatar-name">${escapeHtml(user.full_name)}</div>
+          <div class="avatar-meta">${escapeHtml(user.phone)}</div>
+          <div class="verify-pill ${isVerified ? 'verified' : 'unverified'}">
+            ${isVerified ? '✓ Verified' : 'Unverified'}
+          </div>
+        </div>
+      </div>
+
+      <div class="section-label">Account details</div>
+      <div class="info-row"><span>Gender</span><span>${escapeHtml(user.gender || '—')}</span></div>
+      <div class="info-row"><span>Bank account</span><span>•••• ${escapeHtml((user.bank_account_number || '').slice(-4))}</span></div>
+
+      <div class="section-label">My listings</div>
+      <div id="my-listings"><p class="empty-note">Loading…</p></div>
+
+      <button class="logout-btn" id="logout-btn">Log out</button>
+    `;
+
+    document.getElementById('logout-btn').addEventListener('click', async () => {
+      await fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+      localStorage.removeItem('rentshare_session');
+      window.location.href = '/';
+    });
+  }
+
+  async function loadListings() {
+    const container = document.getElementById('my-listings');
+    try {
+      const res = await fetch('/api/users/me/listings', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      const listings = data.listings || [];
+
+      if (listings.length === 0) {
+        container.innerHTML = `<p class="empty-note">You haven't listed a space yet. <a href="/list-your-space.html" style="color:var(--yellow-text); font-weight:600;">List one now</a>.</p>`;
+        return;
+      }
+
+      container.innerHTML = listings.map((l) => `
+        <div class="listing-item">
+          <div class="listing-item-top">
+            <div>
+              <div class="listing-item-title">${escapeHtml(l.title)}</div>
+              <div class="listing-item-meta">${escapeHtml(l.area)}, ${escapeHtml(l.city)} · ₦${Number(l.price_per_night).toLocaleString()}/night</div>
+            </div>
+            <span class="status-pill ${l.status}">${l.status.replace(/_/g, ' ')}</span>
+          </div>
+        </div>
+      `).join('');
+    } catch (err) {
+      container.innerHTML = '<p class="empty-note">Couldn\'t load your listings.</p>';
+    }
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str || '';
+    return div.innerHTML;
+  }
+</script>
+
+<footer class="tabbar" id="tabbar">
+  <a href="/" class="tab">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-7 9 7"/><path d="M5 9.5V21h14V9.5"/></svg>
+    Home
+  </a>
+  <a href="/search.html" class="tab">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+    Search
+  </a>
+  <a href="/bookings.html" class="tab">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18M8 2v4M16 2v4"/></svg>
+    Bookings
+  </a>
+  <a href="/chats.html" class="tab">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-8.9 8.4 8.5 8.5 0 0 1-3.8-.9L3 20l1-4.5A8.4 8.4 0 1 1 21 11.5Z"/></svg>
+    Chats
+  </a>
+  <a href="/profile.html" class="tab active">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+    Profile
+  </a>
+</footer>
+</body>
+</html>

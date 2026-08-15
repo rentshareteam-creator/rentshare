@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bookings — Rentshare</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+<style>
+  .wrap{ max-width:var(--max-width); margin:0 auto; padding:16px 20px 90px; }
+  .top-row{ display:flex; align-items:center; gap:10px; margin-bottom:16px; }
+  .back-btn{
+    width:34px; height:34px; border-radius:10px; background:var(--surface);
+    border:1px solid var(--line); display:flex; align-items:center; justify-content:center; color:var(--ink);
+  }
+  h1{ font-family:'Space Grotesk',sans-serif; font-size:20px; font-weight:700; }
+
+  .tabs{ display:flex; gap:8px; margin-bottom:18px; }
+  .tab-btn{
+    flex:1; text-align:center; padding:11px 8px; border-radius:13px;
+    background:var(--surface); border:1.5px solid var(--line); font-size:13px; font-weight:600; color:var(--muted);
+    cursor:pointer;
+  }
+  .tab-btn.active{ background:#FDF1D9; border-color:var(--yellow); color:var(--yellow-text); }
+
+  .booking-card{
+    display:flex; gap:12px; background:var(--surface); border:1px solid var(--line); border-radius:16px;
+    padding:12px; margin-bottom:12px;
+  }
+  .booking-thumb{ width:76px; height:76px; border-radius:12px; flex-shrink:0; overflow:hidden; background:linear-gradient(135deg,#8FA3D6,#3A4A78); }
+  .booking-thumb img{ width:100%; height:100%; object-fit:cover; }
+  .booking-info{ flex:1; min-width:0; }
+  .booking-title{ font-size:13.5px; font-weight:600; margin-bottom:2px; }
+  .booking-meta{ font-size:11.5px; color:var(--muted-2); margin-bottom:6px; }
+  .booking-dates{ font-size:12px; color:var(--ink); font-weight:600; margin-bottom:6px; }
+  .status-pill{ font-size:9.5px; font-weight:700; text-transform:uppercase; padding:3px 8px; border-radius:20px; display:inline-block; }
+  .status-pill.requested{ background:rgba(242,177,52,0.15); color:var(--yellow-text); }
+  .status-pill.confirmed, .status-pill.presence_confirmed, .status-pill.checked_in{ background:rgba(47,138,122,0.1); color:#1F6E5E; }
+  .status-pill.completed{ background:rgba(23,32,58,0.08); color:var(--ink); }
+  .status-pill.cancelled, .status-pill.flagged, .status-pill.disputed{ background:rgba(209,74,36,0.1); color:#B03A1A; }
+  .status-pill.presence_unconfirmed{ background:rgba(209,74,36,0.08); color:#B03A1A; }
+
+  .empty-note{ color:var(--muted-2); font-size:13px; text-align:center; padding:60px 20px; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="top-row">
+    <a href="/" class="back-btn" aria-label="Back">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+    </a>
+    <h1>Bookings</h1>
+  </div>
+
+  <div class="tabs">
+    <div class="tab-btn active" data-view="guest">My Trips</div>
+    <div class="tab-btn" data-view="host">Hosting</div>
+  </div>
+
+  <div id="content"><p class="empty-note">Loading…</p></div>
+</div>
+
+<script>
+  const token = localStorage.getItem('rentshare_session');
+  const content = document.getElementById('content');
+  let data = { as_guest: [], as_host: [] };
+  let currentView = 'guest';
+
+  if (!token) {
+    window.location.href = '/login.html';
+  } else {
+    loadBookings();
+  }
+
+  document.querySelectorAll('.tab-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentView = btn.dataset.view;
+      render();
+    });
+  });
+
+  async function loadBookings() {
+    try {
+      const res = await fetch('/api/users/me/bookings', { headers: { Authorization: `Bearer ${token}` } });
+      if (res.status === 401) {
+        localStorage.removeItem('rentshare_session');
+        window.location.href = '/login.html';
+        return;
+      }
+      data = await res.json();
+      render();
+    } catch (err) {
+      content.innerHTML = '<p class="empty-note">Couldn\'t load your bookings — try again.</p>';
+    }
+  }
+
+  function render() {
+    const list = currentView === 'guest' ? (data.as_guest || []) : (data.as_host || []);
+
+    if (list.length === 0) {
+      content.innerHTML = currentView === 'guest'
+        ? `<p class="empty-note">No trips booked yet. <a href="/search.html" style="color:var(--yellow-text); font-weight:600;">Find a stay</a>.</p>`
+        : `<p class="empty-note">No bookings received yet on your listings.</p>`;
+      return;
+    }
+
+    content.innerHTML = list.map((b) => {
+      let photos = [];
+      try { photos = b.photos ? JSON.parse(b.photos) : []; } catch (e) {}
+      const thumb = photos[0] ? `<img src="${photos[0]}" alt="">` : '';
+
+      return `
+        <a href="/listing.html?id=${b.listing_id}" class="booking-card" style="text-decoration:none; color:inherit;">
+          <div class="booking-thumb">${thumb}</div>
+          <div class="booking-info">
+            <div class="booking-title">${escapeHtml(b.title)}</div>
+            <div class="booking-meta">${escapeHtml(b.area)}, ${escapeHtml(b.city)}</div>
+            <div class="booking-dates">${formatDate(b.check_in_date)} → ${formatDate(b.check_out_date)}</div>
+            <span class="status-pill ${b.status}">${b.status.replace(/_/g, ' ')}</span>
+          </div>
+        </a>
+      `;
+    }).join('');
+  }
+
+  function formatDate(d) {
+    if (!d) return '';
+    const date = new Date(d);
+    return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str || '';
+    return div.innerHTML;
+  }
+</script>
+</body>
+</html>

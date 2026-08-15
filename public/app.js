@@ -9,6 +9,26 @@ const typeTabs = document.querySelectorAll('.type-tab');
 const areaChips = document.querySelectorAll('.area-chip');
 const listingsEl = document.getElementById('listings');
 
+// Account icon reflects login state — links to login when signed out,
+// and logs out on tap when signed in (no dedicated profile page yet).
+const accountBtn = document.getElementById('account-btn');
+const sessionToken = localStorage.getItem('rentshare_session');
+if (accountBtn && sessionToken) {
+  accountBtn.removeAttribute('href');
+  accountBtn.style.color = 'var(--yellow-text)';
+  accountBtn.addEventListener('click', async (e) => {
+    e.preventDefault();
+    if (confirm('Log out of Rentshare?')) {
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${sessionToken}` },
+      });
+      localStorage.removeItem('rentshare_session');
+      window.location.reload();
+    }
+  });
+}
+
 typeTabs.forEach((tab) => {
   tab.addEventListener('click', () => {
     typeTabs.forEach((t) => t.classList.remove('active'));
@@ -52,13 +72,18 @@ async function loadListings() {
 }
 
 function renderCard(listing) {
-  const isShared = listing.tier === 'shared_space';
+  const isShared = listing.tier !== 'private_room';
+  const tierLabel = listing.tier === 'shared_room_with_host' ? 'Shared Room' : (isShared ? 'Shared Space' : 'Private Room');
   const genderLabel = listing.gender_allocation === 'female_only' ? 'Women only' : 'Men only';
+  let photos = [];
+  try { photos = listing.photos ? JSON.parse(listing.photos) : []; } catch (e) {}
+  const thumbContent = photos[0] ? `<img src="${photos[0]}" alt="" style="width:100%;height:100%;object-fit:cover;">` : '';
 
   return `
     <div class="listing-card">
       <div class="listing-thumb">
-        <div class="type-tag ${isShared ? 'shared' : ''}">${isShared ? 'Shared Space' : 'Private Room'}</div>
+        ${thumbContent}
+        <div class="type-tag ${isShared ? 'shared' : ''}">${tierLabel}</div>
       </div>
       <div class="listing-info">
         <div class="listing-title">${escapeHtml(listing.title)}</div>

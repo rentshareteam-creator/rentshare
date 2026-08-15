@@ -95,7 +95,7 @@ function renderCard(listing) {
   const thumbContent = photos[0] ? `<img src="${photos[0]}" alt="" style="width:100%;height:100%;object-fit:cover;">` : '';
 
   return `
-    <div class="listing-card">
+    <a href="/listing.html?id=${listing.id}" class="listing-card" style="text-decoration:none; color:inherit;">
       <div class="listing-thumb">
         ${thumbContent}
         <div class="type-tag ${isShared ? 'shared' : ''}">${tierLabel}</div>
@@ -109,7 +109,7 @@ function renderCard(listing) {
         </div>
         <div class="listing-price">₦${Number(listing.price_per_night).toLocaleString()} <span>/ night</span></div>
       </div>
-    </div>
+    </a>
   `;
 }
 

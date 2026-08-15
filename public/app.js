@@ -11,11 +11,8 @@ const listingsEl = document.getElementById('listings');
 
 // Account icon + bottom nav reflect login state.
 // Logged out: everything points to login.html.
-// Logged in: account icon and Profile tab go to the real profile page.
-// Bookings/Chats pages don't exist yet, so — while logged in — they
-// point to profile.html too (closest real destination) rather than
-// sending a logged-in user back to the login screen, which would be
-// a confusing dead end. Swap these to their own real pages once built.
+// Logged in: account icon, Bookings, Chats, and Profile tabs all go to
+// their real pages now that all four exist.
 const accountBtn = document.getElementById('account-btn');
 const bookingsTab = document.getElementById('bookings-tab');
 const chatsTab = document.getElementById('chats-tab');
@@ -28,8 +25,8 @@ if (sessionToken) {
     accountBtn.style.color = 'var(--yellow-text)';
   }
   if (profileTab) profileTab.href = '/profile.html';
-  if (bookingsTab) bookingsTab.href = '/profile.html';
-  if (chatsTab) chatsTab.href = '/profile.html';
+  if (bookingsTab) bookingsTab.href = '/bookings.html';
+  if (chatsTab) chatsTab.href = '/chats.html';
 }
 
 // Notification bell — links to login when signed out, same as account.

@@ -99,7 +99,125 @@ async function handleApi(request, env, url) {
     return myListings(request, env);
   }
 
+  // GET /api/users/me/bookings — logged-in user's bookings, as guest and as host
+  if (pathname === '/api/users/me/bookings' && request.method === 'GET') {
+    return myBookings(request, env);
+  }
+
+  // GET /api/conversations — bookings the user is part of, with last message preview
+  if (pathname === '/api/conversations' && request.method === 'GET') {
+    return getConversations(request, env);
+  }
+
+  // GET /api/messages/:bookingId — full message thread for a booking
+  const messagesMatch = pathname.match(/^\/api\/messages\/([\w-]+)$/);
+  if (messagesMatch && request.method === 'GET') {
+    return getMessages(request, env, messagesMatch[1]);
+  }
+
+  // POST /api/messages — send a message in a booking's conversation
+  if (pathname === '/api/messages' && request.method === 'POST') {
+    return sendMessage(request, env);
+  }
+
   return json({ error: 'Not found' }, 404);
+}
+
+/**
+ * Confirms the logged-in user is either the guest or host on a given
+ * booking before letting them read or send messages tied to it —
+ * chat is scoped to bookings, so this is the access-control checkpoint
+ * for every messaging endpoint below.
+ */
+async function getBookingIfParticipant(env, bookingId, userId) {
+  const booking = await env.DB.prepare(`SELECT * FROM bookings WHERE id = ?`).bind(bookingId).first();
+  if (!booking) return null;
+  if (booking.guest_id !== userId && booking.host_id !== userId) return null;
+  return booking;
+}
+
+async function getConversations(request, env) {
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: 'Not logged in.' }, 401);
+
+  const { results } = await env.DB.prepare(`
+    SELECT
+      b.id AS booking_id, b.check_in_date, b.check_out_date, b.status,
+      l.title AS listing_title,
+      CASE WHEN b.guest_id = ? THEN host.full_name ELSE guest.full_name END AS other_party_name,
+      (SELECT body FROM messages WHERE booking_id = b.id ORDER BY created_at DESC LIMIT 1) AS last_message,
+      (SELECT created_at FROM messages WHERE booking_id = b.id ORDER BY created_at DESC LIMIT 1) AS last_message_at,
+      (SELECT COUNT(*) FROM messages WHERE booking_id = b.id AND sender_id != ? AND read_at IS NULL) AS unread_count
+    FROM bookings b
+    JOIN listings l ON b.listing_id = l.id
+    JOIN users guest ON b.guest_id = guest.id
+    JOIN users host ON b.host_id = host.id
+    WHERE b.guest_id = ? OR b.host_id = ?
+    ORDER BY last_message_at DESC, b.created_at DESC
+  `).bind(user.id, user.id, user.id, user.id).all();
+
+  return json({ conversations: results });
+}
+
+async function getMessages(request, env, bookingId) {
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: 'Not logged in.' }, 401);
+
+  const booking = await getBookingIfParticipant(env, bookingId, user.id);
+  if (!booking) return json({ error: 'Conversation not found.' }, 404);
+
+  const { results } = await env.DB.prepare(`
+    SELECT m.*, u.full_name AS sender_name
+    FROM messages m JOIN users u ON m.sender_id = u.id
+    WHERE m.booking_id = ? ORDER BY m.created_at ASC
+  `).bind(bookingId).all();
+
+  // Mark the other party's messages as read now that this user has opened the thread
+  const now = new Date().toISOString();
+  await env.DB.prepare(`UPDATE messages SET read_at = ? WHERE booking_id = ? AND sender_id != ? AND read_at IS NULL`)
+    .bind(now, bookingId, user.id).run();
+
+  return json({ messages: results, booking });
+}
+
+async function sendMessage(request, env) {
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: 'Not logged in.' }, 401);
+
+  const { booking_id, body: messageBody } = await request.json();
+  if (!booking_id || !messageBody || !messageBody.trim()) {
+    return json({ error: 'A message body is required.' }, 400);
+  }
+
+  const booking = await getBookingIfParticipant(env, booking_id, user.id);
+  if (!booking) return json({ error: 'Conversation not found.' }, 404);
+
+  const id = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  await env.DB.prepare(`INSERT INTO messages (id, booking_id, sender_id, body, created_at) VALUES (?, ?, ?, ?, ?)`)
+    .bind(id, booking_id, user.id, messageBody.trim(), now).run();
+
+  return json({ id, created_at: now }, 201);
+}
+
+async function myBookings(request, env) {
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: 'Not logged in.' }, 401);
+
+  const asGuest = await env.DB.prepare(`
+    SELECT b.*, l.title, l.city, l.area, l.tier, l.photos
+    FROM bookings b JOIN listings l ON b.listing_id = l.id
+    WHERE b.guest_id = ? ORDER BY b.created_at DESC
+  `).bind(user.id).all();
+
+  const asHost = await env.DB.prepare(`
+    SELECT b.*, l.title, l.city, l.area, l.tier, l.photos
+    FROM bookings b JOIN listings l ON b.listing_id = l.id
+    WHERE b.host_id = ? ORDER BY b.created_at DESC
+  `).bind(user.id).all();
+
+  return json({ as_guest: asGuest.results, as_host: asHost.results });
 }
 
 async function authMe(request, env) {

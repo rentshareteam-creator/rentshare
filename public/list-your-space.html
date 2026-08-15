@@ -57,6 +57,12 @@
   .status-msg{ font-size:13px; margin-top:12px; padding:12px 14px; border-radius:12px; display:none; }
   .status-msg.error{ display:block; background:rgba(209,74,36,0.1); color:#B03A1A; }
   .status-msg.success{ display:block; background:rgba(47,138,122,0.1); color:#1F6E5E; }
+  .photo-thumb{ position:relative; width:72px; height:72px; border-radius:10px; overflow:hidden; }
+  .photo-thumb img{ width:100%; height:100%; object-fit:cover; }
+  .photo-thumb .cover-tag{
+    position:absolute; bottom:2px; left:2px; font-size:8px; font-weight:700; color:#fff;
+    background:rgba(0,0,0,0.6); padding:2px 5px; border-radius:5px;
+  }
 </style>
 </head>
 <body>
@@ -127,6 +133,14 @@
       <label>Price per night (₦)</label>
       <input type="number" name="price_per_night" required min="1000" placeholder="15000">
     </div>
+
+    <div class="section-label">Photos</div>
+    <div class="field">
+      <label>Add up to 6 photos</label>
+      <span class="fs">Clear, well-lit photos get more bookings. First photo is the cover.</span>
+      <input type="file" id="photo-input" accept="image/*" multiple>
+    </div>
+    <div id="photo-preview" style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:14px;"></div>
 
     <div class="gender-tier-only" id="gender-fields">
       <div class="section-label">Space gender allocation — required</div>
@@ -233,6 +247,45 @@
     quietHoursField.style.display = quietHoursToggle.checked ? 'block' : 'none';
   });
 
+  // Photos upload as soon as they're picked, not on form submit — this
+  // way a slow upload doesn't block the whole form, and the host sees
+  // each photo land (or fail) individually.
+  const photoInput = document.getElementById('photo-input');
+  const photoPreview = document.getElementById('photo-preview');
+  let uploadedPhotos = []; // [{ key, url }]
+
+  photoInput.addEventListener('change', async () => {
+    const files = Array.from(photoInput.files).slice(0, 6 - uploadedPhotos.length);
+    for (const file of files) {
+      const thumb = document.createElement('div');
+      thumb.className = 'photo-thumb';
+      thumb.innerHTML = `<img src="${URL.createObjectURL(file)}" style="opacity:0.5;">`;
+      photoPreview.appendChild(thumb);
+
+      const fd = new FormData();
+      fd.append('photo', file);
+
+      try {
+        const res = await fetch('/api/photos/upload', { method: 'POST', body: fd });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Upload failed');
+
+        uploadedPhotos.push({ key: data.key, url: data.url });
+        thumb.querySelector('img').style.opacity = '1';
+        if (uploadedPhotos.length === 1) {
+          const tag = document.createElement('span');
+          tag.className = 'cover-tag';
+          tag.textContent = 'Cover';
+          thumb.appendChild(tag);
+        }
+      } catch (err) {
+        thumb.remove();
+        alert(`Couldn't upload a photo: ${err.message}`);
+      }
+    }
+    photoInput.value = '';
+  });
+
   const form = document.getElementById('listing-form');
   const submitBtn = document.getElementById('submit-btn');
   const statusMsg = document.getElementById('status-msg');
@@ -253,6 +306,7 @@
     payload.allows_extra_guests = form.allows_extra_guests.checked;
     payload.allows_parties = form.allows_parties.checked;
     payload.quiet_hours_enabled = form.quiet_hours_enabled.checked;
+    payload.photos = uploadedPhotos.map((p) => p.url);
 
     try {
       const res = await fetch('/api/listings', {
@@ -273,6 +327,8 @@
       tierTabs.forEach((t) => t.classList.remove('active'));
       tierTabs[0].classList.add('active');
       tierInput.value = 'private_room';
+      uploadedPhotos = [];
+      photoPreview.innerHTML = '';
     } catch (err) {
       statusMsg.className = 'status-msg error';
       statusMsg.textContent = err.message;

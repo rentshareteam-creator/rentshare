@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Search — Rentshare</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+<style>
+  .search-wrap{ max-width:var(--max-width); margin:0 auto; padding:16px 20px 90px; }
+  .top-row{ display:flex; align-items:center; gap:10px; margin-bottom:16px; }
+  .back-btn{
+    width:34px; height:34px; border-radius:10px; background:var(--surface);
+    border:1px solid var(--line); display:flex; align-items:center; justify-content:center;
+    color:var(--ink); flex-shrink:0;
+  }
+  .search-bar{
+    flex:1; background:var(--surface); border:1px solid var(--line); border-radius:14px;
+    padding:11px 14px; display:flex; align-items:center; gap:8px;
+  }
+  .search-bar input{
+    border:none; outline:none; background:transparent; font-size:14px; width:100%; font-family:'Inter',sans-serif;
+  }
+  .filter-toggle{
+    width:34px; height:34px; border-radius:10px; background:var(--surface);
+    border:1px solid var(--line); display:flex; align-items:center; justify-content:center;
+    color:var(--ink); flex-shrink:0; position:relative;
+  }
+  .filter-toggle.active-dot::after{
+    content:""; position:absolute; top:6px; right:6px; width:7px; height:7px; border-radius:50%; background:var(--coral);
+  }
+
+  .filters-panel{
+    display:none; background:var(--surface); border:1px solid var(--line); border-radius:16px;
+    padding:16px; margin-bottom:16px;
+  }
+  .filters-panel.open{ display:block; }
+  .filter-group{ margin-bottom:16px; }
+  .filter-group:last-child{ margin-bottom:0; }
+  .filter-label{ font-size:12px; font-weight:600; color:var(--muted); margin-bottom:8px; text-transform:uppercase; letter-spacing:.03em; }
+  .chip-select{ display:flex; flex-wrap:wrap; gap:8px; }
+  .chip-opt{
+    font-size:12px; font-weight:600; padding:8px 13px; border-radius:20px;
+    background:var(--screen-bg); border:1px solid var(--line); color:var(--muted); cursor:pointer;
+  }
+  .chip-opt.active{ background:#FDF1D9; border-color:var(--yellow); color:var(--yellow-text); }
+  .price-row{ display:flex; gap:10px; align-items:center; }
+  .price-row input{
+    flex:1; padding:10px 12px; border-radius:10px; border:1px solid var(--line);
+    font-size:13px; font-family:'Inter',sans-serif;
+  }
+  .filter-actions{ display:flex; gap:10px; margin-top:18px; }
+  .btn-apply, .btn-clear{
+    flex:1; padding:12px; border-radius:12px; font-weight:700; font-size:13px; cursor:pointer;
+    font-family:'Space Grotesk',sans-serif; border:none;
+  }
+  .btn-apply{ background:var(--yellow); color:#161006; }
+  .btn-clear{ background:transparent; border:1px solid var(--line); color:var(--muted); }
+
+  .result-count{ font-size:12.5px; color:var(--muted); margin-bottom:12px; }
+  .listing-list{ display:flex; flex-direction:column; gap:12px; }
+  .listing-card{ display:flex; gap:12px; background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:10px; }
+  .listing-thumb{ width:84px; height:84px; border-radius:12px; flex-shrink:0; position:relative; overflow:hidden; background:linear-gradient(135deg,#8FA3D6,#3A4A78); }
+  .listing-thumb img{ width:100%; height:100%; object-fit:cover; }
+  .type-tag{ position:absolute; top:6px; left:6px; font-size:8.5px; font-weight:700; text-transform:uppercase; letter-spacing:.03em; padding:3px 7px; border-radius:6px; background:rgba(255,255,255,0.95); color:var(--yellow-text); }
+  .type-tag.shared{ color:#207364; }
+  .listing-info{ flex:1; min-width:0; display:flex; flex-direction:column; justify-content:center; gap:4px; }
+  .listing-title{ font-size:13.5px; font-weight:600; }
+  .listing-meta{ font-size:10.5px; color:var(--muted-2); }
+  .badge-row{ display:flex; gap:8px; margin-top:1px; }
+  .mini-badge{ display:flex; align-items:center; gap:3px; font-size:9.5px; color:var(--muted); font-weight:500; }
+  .listing-price{ font-size:13.5px; color:var(--yellow-text); font-weight:700; margin-top:2px; }
+  .listing-price span{ color:var(--muted-2); font-weight:500; font-size:10.5px; }
+  .empty-note{ color:var(--muted-2); font-size:13px; text-align:center; padding:60px 0; }
+</style>
+</head>
+<body>
+
+<div class="search-wrap">
+  <div class="top-row">
+    <a href="/" class="back-btn" aria-label="Back">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+    </a>
+    <div class="search-bar">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <input type="text" id="area-input" placeholder="Search by area — Lekki, Yaba, Ikeja…">
+    </div>
+    <button class="filter-toggle" id="filter-toggle" aria-label="Filters">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M8 12h8M11 18h2"/></svg>
+    </button>
+  </div>
+
+  <div class="filters-panel" id="filters-panel">
+    <div class="filter-group">
+      <div class="filter-label">Stay type</div>
+      <div class="chip-select" id="tier-chips">
+        <div class="chip-opt active" data-tier="">All</div>
+        <div class="chip-opt" data-tier="private_room">Private Room</div>
+        <div class="chip-opt" data-tier="shared_space">Shared Space</div>
+        <div class="chip-opt" data-tier="shared_room_with_host">Shared Room</div>
+      </div>
+    </div>
+
+    <div class="filter-group" id="gender-filter-group" style="display:none;">
+      <div class="filter-label">Gender allocation</div>
+      <div class="chip-select" id="gender-chips">
+        <div class="chip-opt active" data-gender="">Any</div>
+        <div class="chip-opt" data-gender="female">Female only</div>
+        <div class="chip-opt" data-gender="male">Male only</div>
+      </div>
+    </div>
+
+    <div class="filter-group">
+      <div class="filter-label">Price per night (₦)</div>
+      <div class="price-row">
+        <input type="number" id="price-min" placeholder="Min">
+        <span style="color:var(--muted-2);">—</span>
+        <input type="number" id="price-max" placeholder="Max">
+      </div>
+    </div>
+
+    <div class="filter-group">
+      <div class="filter-label">House rules</div>
+      <div class="chip-select" id="rules-chips">
+        <div class="chip-opt" data-rule="allows_smoking">Smoking OK</div>
+        <div class="chip-opt" data-rule="allows_pets">Pets OK</div>
+        <div class="chip-opt" data-rule="allows_parties">Parties OK</div>
+        <div class="chip-opt" data-rule="allows_visitors">Visitors OK</div>
+      </div>
+    </div>
+
+    <div class="filter-actions">
+      <button class="btn-clear" id="btn-clear">Clear all</button>
+      <button class="btn-apply" id="btn-apply">Apply filters</button>
+    </div>
+  </div>
+
+  <div class="result-count" id="result-count"></div>
+  <div id="listings" class="listing-list"><p class="empty-note">Loading…</p></div>
+</div>
+
+<script>
+  const state = { area: '', tier: '', gender: '', priceMin: null, priceMax: null, rules: new Set() };
+
+  const filterToggle = document.getElementById('filter-toggle');
+  const filtersPanel = document.getElementById('filters-panel');
+  filterToggle.addEventListener('click', () => filtersPanel.classList.toggle('open'));
+
+  const areaInput = document.getElementById('area-input');
+  let searchDebounce;
+  areaInput.addEventListener('input', () => {
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(() => {
+      state.area = areaInput.value.trim();
+      loadListings();
+    }, 400);
+  });
+
+  document.getElementById('tier-chips').addEventListener('click', (e) => {
+    const chip = e.target.closest('.chip-opt');
+    if (!chip) return;
+    document.querySelectorAll('#tier-chips .chip-opt').forEach((c) => c.classList.remove('active'));
+    chip.classList.add('active');
+    state.tier = chip.dataset.tier;
+    document.getElementById('gender-filter-group').style.display =
+      (state.tier === 'shared_space' || state.tier === 'shared_room_with_host') ? 'block' : 'none';
+  });
+
+  document.getElementById('gender-chips').addEventListener('click', (e) => {
+    const chip = e.target.closest('.chip-opt');
+    if (!chip) return;
+    document.querySelectorAll('#gender-chips .chip-opt').forEach((c) => c.classList.remove('active'));
+    chip.classList.add('active');
+    state.gender = chip.dataset.gender;
+  });
+
+  document.getElementById('rules-chips').addEventListener('click', (e) => {
+    const chip = e.target.closest('.chip-opt');
+    if (!chip) return;
+    chip.classList.toggle('active');
+    if (chip.classList.contains('active')) state.rules.add(chip.dataset.rule);
+    else state.rules.delete(chip.dataset.rule);
+  });
+
+  document.getElementById('btn-apply').addEventListener('click', () => {
+    state.priceMin = document.getElementById('price-min').value ? Number(document.getElementById('price-min').value) : null;
+    state.priceMax = document.getElementById('price-max').value ? Number(document.getElementById('price-max').value) : null;
+    filtersPanel.classList.remove('open');
+    loadListings();
+  });
+
+  document.getElementById('btn-clear').addEventListener('click', () => {
+    state.tier = ''; state.gender = ''; state.priceMin = null; state.priceMax = null; state.rules.clear();
+    document.querySelectorAll('.chip-opt').forEach((c) => c.classList.remove('active'));
+    document.querySelector('#tier-chips .chip-opt[data-tier=""]').classList.add('active');
+    document.querySelector('#gender-chips .chip-opt[data-gender=""]').classList.add('active');
+    document.getElementById('gender-filter-group').style.display = 'none';
+    document.getElementById('price-min').value = '';
+    document.getElementById('price-max').value = '';
+    loadListings();
+  });
+
+  const listingsEl = document.getElementById('listings');
+  const resultCount = document.getElementById('result-count');
+
+  async function loadListings() {
+    listingsEl.innerHTML = '<p class="empty-note">Loading…</p>';
+    resultCount.textContent = '';
+
+    const params = new URLSearchParams();
+    if (state.area) params.set('city', state.area);
+    if (state.tier) params.set('tier', state.tier);
+    if (state.gender) params.set('gender', state.gender);
+
+    try {
+      const res = await fetch(`/api/listings?${params.toString()}`);
+      const data = await res.json();
+      let results = data.listings || [];
+
+      // Price and house-rule filters aren't supported server-side yet — filtered
+      // client-side here for now (fine at current scale, worth moving server-side later).
+      if (state.priceMin !== null) results = results.filter((l) => l.price_per_night >= state.priceMin);
+      if (state.priceMax !== null) results = results.filter((l) => l.price_per_night <= state.priceMax);
+      state.rules.forEach((rule) => { results = results.filter((l) => l[rule] === 1); });
+
+      renderResults(results);
+    } catch (err) {
+      listingsEl.innerHTML = '<p class="empty-note">Couldn\'t load listings — try again.</p>';
+    }
+  }
+
+  function renderResults(results) {
+    resultCount.textContent = `${results.length} ${results.length === 1 ? 'stay' : 'stays'} found`;
+
+    if (results.length === 0) {
+      listingsEl.innerHTML = '<p class="empty-note">No stays match these filters. Try widening your search.</p>';
+      return;
+    }
+
+    listingsEl.innerHTML = results.map(renderCard).join('');
+  }
+
+  function renderCard(listing) {
+    const isShared = listing.tier !== 'private_room';
+    const tierLabel = listing.tier === 'shared_room_with_host' ? 'Shared Room' : (isShared ? 'Shared Space' : 'Private Room');
+    const genderLabel = listing.gender_allocation === 'female_only' ? 'Women only' : 'Men only';
+    let photos = [];
+    try { photos = listing.photos ? JSON.parse(listing.photos) : []; } catch (e) {}
+    const thumbContent = photos[0]
+      ? `<img src="${photos[0]}" alt="">`
+      : '';
+
+    return `
+      <div class="listing-card">
+        <div class="listing-thumb">${thumbContent}<div class="type-tag ${isShared ? 'shared' : ''}">${tierLabel}</div></div>
+        <div class="listing-info">
+          <div class="listing-title">${escapeHtml(listing.title)}</div>
+          <div class="listing-meta">${escapeHtml(listing.area)}, ${escapeHtml(listing.city)}</div>
+          <div class="badge-row">
+            ${isShared ? `<div class="mini-badge">${genderLabel}</div>` : ''}
+            <div class="mini-badge">ID verified</div>
+          </div>
+          <div class="listing-price">₦${Number(listing.price_per_night).toLocaleString()} <span>/ night</span></div>
+        </div>
+      </div>
+    `;
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  loadListings();
+</script>
+</body>
+</html>

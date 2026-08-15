@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — Rentshare</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+<style>
+  .wrap{ max-width:600px; margin:0 auto; padding:24px 20px 60px; }
+  h1{ font-family:'Space Grotesk',sans-serif; font-size:20px; font-weight:700; margin-bottom:4px; }
+  .lede{ color:var(--muted); font-size:13px; margin-bottom:24px; }
+
+  .gate{
+    background:var(--surface); border:1px solid var(--line); border-radius:16px;
+    padding:24px; margin-top:40px;
+  }
+  .gate input{
+    width:100%; padding:12px 14px; border-radius:12px; border:1px solid var(--line);
+    font-size:14px; margin-bottom:12px; font-family:'Inter',sans-serif;
+  }
+  .gate button, .primary-btn{
+    width:100%; background:var(--yellow); color:#161006; border:none; border-radius:12px;
+    padding:13px; font-weight:700; font-size:14px; font-family:'Space Grotesk',sans-serif; cursor:pointer;
+  }
+  .gate .err{ color:#B03A1A; font-size:12.5px; margin-top:8px; display:none; }
+
+  #app{ display:none; }
+
+  .listing-card{
+    background:var(--surface); border:1px solid var(--line); border-radius:16px;
+    padding:16px; margin-bottom:14px;
+  }
+  .listing-card h3{ font-family:'Space Grotesk',sans-serif; font-size:15px; margin-bottom:4px; }
+  .meta-row{ font-size:12px; color:var(--muted); margin-bottom:10px; }
+  .tag{
+    display:inline-block; font-size:10px; font-weight:700; text-transform:uppercase;
+    padding:3px 8px; border-radius:6px; background:#FDF1D9; color:var(--yellow-text); margin-right:6px;
+  }
+  .detail-grid{
+    display:grid; grid-template-columns:1fr 1fr; gap:6px 12px; font-size:12px; color:var(--muted);
+    margin-bottom:14px; padding:12px; background:var(--screen-bg); border-radius:10px;
+  }
+  .detail-grid b{ color:var(--ink); }
+  .btn-row{ display:flex; gap:10px; }
+  .btn-approve, .btn-reject{
+    flex:1; padding:11px; border-radius:10px; border:none; font-weight:700; font-size:13px; cursor:pointer;
+    font-family:'Space Grotesk',sans-serif;
+  }
+  .btn-approve{ background:var(--teal); color:#fff; }
+  .btn-reject{ background:transparent; border:1px solid var(--coral); color:var(--coral); }
+  .empty-note{ color:var(--muted-2); font-size:13px; text-align:center; padding:40px 0; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <h1>Rentshare Admin</h1>
+  <p class="lede">Review and approve pending listings.</p>
+
+  <div class="gate" id="gate">
+    <label style="font-size:12.5px; font-weight:600; display:block; margin-bottom:8px;">Admin password</label>
+    <input type="password" id="password-input" placeholder="Enter admin password">
+    <button id="unlock-btn">Unlock</button>
+    <p class="err" id="gate-err">Incorrect password.</p>
+  </div>
+
+  <div id="app">
+    <div id="listings-container">
+      <p class="empty-note">Loading pending listings…</p>
+    </div>
+  </div>
+</div>
+
+<script>
+  const gate = document.getElementById('gate');
+  const app = document.getElementById('app');
+  const passwordInput = document.getElementById('password-input');
+  const unlockBtn = document.getElementById('unlock-btn');
+  const gateErr = document.getElementById('gate-err');
+  const container = document.getElementById('listings-container');
+
+  let adminPassword = sessionStorage.getItem('rentshare_admin_pw') || '';
+
+  async function tryUnlock(pw) {
+    const res = await fetch('/api/admin/listings?status=pending_review', {
+      headers: { 'X-Admin-Password': pw },
+    });
+    if (res.status === 401) return false;
+    const data = await res.json();
+    renderListings(data.listings || []);
+    return true;
+  }
+
+  unlockBtn.addEventListener('click', async () => {
+    const pw = passwordInput.value;
+    const ok = await tryUnlock(pw);
+    if (ok) {
+      adminPassword = pw;
+      sessionStorage.setItem('rentshare_admin_pw', pw);
+      gate.style.display = 'none';
+      app.style.display = 'block';
+    } else {
+      gateErr.style.display = 'block';
+    }
+  });
+
+  function renderListings(listings) {
+    if (listings.length === 0) {
+      container.innerHTML = '<p class="empty-note">No listings pending review.</p>';
+      return;
+    }
+    container.innerHTML = listings.map((l) => `
+      <div class="listing-card" data-id="${l.id}">
+        <span class="tag">${l.tier.replace(/_/g, ' ')}</span>
+        <h3>${escapeHtml(l.title)}</h3>
+        <div class="meta-row">${escapeHtml(l.area)}, ${escapeHtml(l.city)} · ₦${Number(l.price_per_night).toLocaleString()}/night</div>
+        <div class="detail-grid">
+          <div><b>Gender:</b> ${l.gender_allocation || '—'}</div>
+          <div><b>Lockable:</b> ${l.lockable_door ? 'Yes' : 'No'}</div>
+          <div><b>Bathroom:</b> ${l.bathroom_access || '—'}</div>
+          <div><b>Access:</b> ${l.access_hours || '—'}</div>
+          <div><b>Smoking:</b> ${l.allows_smoking ? 'Allowed' : 'No'}</div>
+          <div><b>Pets:</b> ${l.allows_pets ? 'Allowed' : 'No'}</div>
+          <div><b>Parties:</b> ${l.allows_parties ? 'Allowed' : 'No'}</div>
+          <div><b>Quiet hours:</b> ${l.quiet_hours_enabled ? (l.quiet_hours || 'Yes') : 'No'}</div>
+        </div>
+        <div class="btn-row">
+          <button class="btn-approve" onclick="reviewListing('${l.id}', 'approve')">Approve</button>
+          <button class="btn-reject" onclick="reviewListing('${l.id}', 'reject')">Reject</button>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  async function reviewListing(id, action) {
+    const res = await fetch(`/api/admin/listings/${id}/${action}`, {
+      method: 'POST',
+      headers: { 'X-Admin-Password': adminPassword },
+    });
+    if (res.ok) {
+      document.querySelector(`.listing-card[data-id="${id}"]`).remove();
+      if (!container.querySelector('.listing-card')) {
+        container.innerHTML = '<p class="empty-note">No listings pending review.</p>';
+      }
+    } else {
+      alert('Something went wrong — try again.');
+    }
+  }
+
+  // Auto-unlock if password already in this session
+  if (adminPassword) {
+    tryUnlock(adminPassword).then((ok) => {
+      if (ok) {
+        gate.style.display = 'none';
+        app.style.display = 'block';
+      }
+    });
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+</script>
+</body>
+</html>

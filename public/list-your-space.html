@@ -309,9 +309,13 @@
     payload.photos = uploadedPhotos.map((p) => p.url);
 
     try {
+      const sessionToken = localStorage.getItem('rentshare_session');
+      const headers = { 'Content-Type': 'application/json' };
+      if (sessionToken) headers.Authorization = `Bearer ${sessionToken}`;
+
       const res = await fetch('/api/listings', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(payload),
       });
       const data = await res.json();
@@ -331,7 +335,11 @@
       photoPreview.innerHTML = '';
     } catch (err) {
       statusMsg.className = 'status-msg error';
-      statusMsg.textContent = err.message;
+      if (err.message.includes('log in')) {
+        statusMsg.innerHTML = `${err.message} <a href="/login.html" style="color:#B03A1A; font-weight:700; text-decoration:underline;">Log in now</a>`;
+      } else {
+        statusMsg.textContent = err.message;
+      }
     } finally {
       submitBtn.disabled = false;
       submitBtn.textContent = 'Submit listing for review';

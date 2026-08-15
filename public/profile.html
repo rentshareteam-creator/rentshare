@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Profile — Rentshare</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+<style>
+  .profile-wrap{ max-width:var(--max-width); margin:0 auto; padding:16px 20px 90px; }
+  .top-row{ display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; }
+  .back-btn{
+    width:34px; height:34px; border-radius:10px; background:var(--surface);
+    border:1px solid var(--line); display:flex; align-items:center; justify-content:center;
+    color:var(--ink);
+  }
+  h1{ font-family:'Space Grotesk',sans-serif; font-size:20px; font-weight:700; }
+
+  .avatar-card{
+    background:var(--surface); border:1px solid var(--line); border-radius:18px;
+    padding:20px; display:flex; align-items:center; gap:14px; margin-bottom:16px;
+  }
+  .avatar-circle{
+    width:52px; height:52px; border-radius:50%; background:#FDF1D9; color:var(--yellow-text);
+    display:flex; align-items:center; justify-content:center; font-family:'Space Grotesk',sans-serif;
+    font-weight:700; font-size:20px; flex-shrink:0;
+  }
+  .avatar-name{ font-size:15.5px; font-weight:700; }
+  .avatar-meta{ font-size:12px; color:var(--muted); margin-top:2px; }
+  .verify-pill{
+    display:inline-flex; align-items:center; gap:4px; font-size:10.5px; font-weight:600;
+    padding:3px 9px; border-radius:20px; margin-top:6px;
+  }
+  .verify-pill.unverified{ background:rgba(209,74,36,0.1); color:#B03A1A; }
+  .verify-pill.verified{ background:rgba(47,138,122,0.1); color:#1F6E5E; }
+
+  .section-label{ font-size:12px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; margin:22px 0 12px; }
+  .info-row{
+    display:flex; justify-content:space-between; align-items:center;
+    background:var(--surface); border:1px solid var(--line); border-radius:14px;
+    padding:13px 15px; margin-bottom:8px; font-size:13.5px;
+  }
+  .info-row span:first-child{ color:var(--muted); }
+  .info-row span:last-child{ font-weight:600; }
+
+  .listing-item{
+    background:var(--surface); border:1px solid var(--line); border-radius:14px;
+    padding:13px 15px; margin-bottom:8px;
+  }
+  .listing-item-top{ display:flex; justify-content:space-between; align-items:flex-start; gap:8px; }
+  .listing-item-title{ font-size:13.5px; font-weight:600; }
+  .listing-item-meta{ font-size:11.5px; color:var(--muted-2); margin-top:2px; }
+  .status-pill{ font-size:9.5px; font-weight:700; text-transform:uppercase; padding:3px 8px; border-radius:20px; flex-shrink:0; }
+  .status-pill.pending_review{ background:rgba(242,177,52,0.15); color:var(--yellow-text); }
+  .status-pill.active{ background:rgba(47,138,122,0.1); color:#1F6E5E; }
+  .status-pill.removed{ background:rgba(209,74,36,0.1); color:#B03A1A; }
+
+  .empty-note{ color:var(--muted-2); font-size:13px; text-align:center; padding:20px 0; }
+
+  .logout-btn{
+    width:100%; background:transparent; border:1px solid var(--line); border-radius:14px;
+    padding:14px; font-weight:700; font-size:13.5px; color:#B03A1A; cursor:pointer;
+    font-family:'Space Grotesk',sans-serif; margin-top:24px;
+  }
+</style>
+</head>
+<body>
+
+<div class="profile-wrap">
+  <div class="top-row">
+    <a href="/" class="back-btn" aria-label="Back">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+    </a>
+    <h1>Profile</h1>
+    <div style="width:34px;"></div>
+  </div>
+
+  <div id="content">
+    <p class="empty-note">Loading…</p>
+  </div>
+</div>
+
+<script>
+  const token = localStorage.getItem('rentshare_session');
+  const content = document.getElementById('content');
+
+  if (!token) {
+    window.location.href = '/login.html';
+  } else {
+    loadProfile();
+  }
+
+  async function loadProfile() {
+    try {
+      const res = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${token}` } });
+      if (res.status === 401) {
+        localStorage.removeItem('rentshare_session');
+        window.location.href = '/login.html';
+        return;
+      }
+      const data = await res.json();
+      renderProfile(data.user);
+      loadListings();
+    } catch (err) {
+      content.innerHTML = '<p class="empty-note">Couldn\'t load your profile — try again.</p>';
+    }
+  }
+
+  function renderProfile(user) {
+    const initial = user.full_name ? user.full_name.charAt(0).toUpperCase() : '?';
+    const isVerified = user.verification_status && user.verification_status !== 'unverified';
+
+    content.innerHTML = `
+      <div class="avatar-card">
+        <div class="avatar-circle">${initial}</div>
+        <div>
+          <div class="avatar-name">${escapeHtml(user.full_name)}</div>
+          <div class="avatar-meta">${escapeHtml(user.phone)}</div>
+          <div class="verify-pill ${isVerified ? 'verified' : 'unverified'}">
+            ${isVerified ? '✓ Verified' : 'Unverified'}
+          </div>
+        </div>
+      </div>
+
+      <div class="section-label">Account details</div>
+      <div class="info-row"><span>Gender</span><span>${escapeHtml(user.gender || '—')}</span></div>
+      <div class="info-row"><span>Bank account</span><span>•••• ${escapeHtml((user.bank_account_number || '').slice(-4))}</span></div>
+
+      <div class="section-label">My listings</div>
+      <div id="my-listings"><p class="empty-note">Loading…</p></div>
+
+      <button class="logout-btn" id="logout-btn">Log out</button>
+    `;
+
+    document.getElementById('logout-btn').addEventListener('click', async () => {
+      await fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } });
+      localStorage.removeItem('rentshare_session');
+      window.location.href = '/';
+    });
+  }
+
+  async function loadListings() {
+    const container = document.getElementById('my-listings');
+    try {
+      const res = await fetch('/api/users/me/listings', { headers: { Authorization: `Bearer ${token}` } });
+      const data = await res.json();
+      const listings = data.listings || [];
+
+      if (listings.length === 0) {
+        container.innerHTML = `<p class="empty-note">You haven't listed a space yet. <a href="/list-your-space.html" style="color:var(--yellow-text); font-weight:600;">List one now</a>.</p>`;
+        return;
+      }
+
+      container.innerHTML = listings.map((l) => `
+        <div class="listing-item">
+          <div class="listing-item-top">
+            <div>
+              <div class="listing-item-title">${escapeHtml(l.title)}</div>
+              <div class="listing-item-meta">${escapeHtml(l.area)}, ${escapeHtml(l.city)} · ₦${Number(l.price_per_night).toLocaleString()}/night</div>
+            </div>
+            <span class="status-pill ${l.status}">${l.status.replace(/_/g, ' ')}</span>
+          </div>
+        </div>
+      `).join('');
+    } catch (err) {
+      container.innerHTML = '<p class="empty-note">Couldn\'t load your listings.</p>';
+    }
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str || '';
+    return div.innerHTML;
+  }
+</script>
+</body>
+</html>

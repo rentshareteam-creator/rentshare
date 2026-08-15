@@ -56,8 +56,13 @@
 <body>
 
 <div class="wrap">
-  <h1>Rentshare Admin</h1>
-  <p class="lede">Review and approve pending listings.</p>
+  <div style="display:flex; align-items:center; justify-content:space-between;">
+    <div>
+      <h1>Rentshare Admin</h1>
+      <p class="lede">Review and approve pending listings.</p>
+    </div>
+    <button id="logout-btn" style="display:none; background:transparent; border:1px solid var(--line); border-radius:10px; padding:8px 14px; font-size:12.5px; font-weight:600; color:var(--muted); cursor:pointer;">Log out</button>
+  </div>
 
   <div class="gate" id="gate">
     <label style="font-size:12.5px; font-weight:600; display:block; margin-bottom:8px;">Admin password</label>
@@ -80,6 +85,17 @@
   const unlockBtn = document.getElementById('unlock-btn');
   const gateErr = document.getElementById('gate-err');
   const container = document.getElementById('listings-container');
+  const logoutBtn = document.getElementById('logout-btn');
+
+  logoutBtn.addEventListener('click', () => {
+    sessionStorage.removeItem('rentshare_admin_pw');
+    adminPassword = '';
+    app.style.display = 'none';
+    logoutBtn.style.display = 'none';
+    gate.style.display = 'block';
+    passwordInput.value = '';
+    gateErr.style.display = 'none';
+  });
 
   let adminPassword = sessionStorage.getItem('rentshare_admin_pw') || '';
 
@@ -101,6 +117,7 @@
       sessionStorage.setItem('rentshare_admin_pw', pw);
       gate.style.display = 'none';
       app.style.display = 'block';
+      logoutBtn.style.display = 'block';
     } else {
       gateErr.style.display = 'block';
     }
@@ -155,6 +172,7 @@
       if (ok) {
         gate.style.display = 'none';
         app.style.display = 'block';
+        logoutBtn.style.display = 'block';
       }
     });
   }

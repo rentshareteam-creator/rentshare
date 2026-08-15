@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Listing — Rentshare</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+<style>
+  .wrap{ max-width:var(--max-width); margin:0 auto; padding-bottom:110px; }
+  .back-btn{
+    position:absolute; top:16px; left:16px; z-index:10;
+    width:34px; height:34px; border-radius:10px; background:rgba(255,255,255,0.92);
+    border:1px solid var(--line); display:flex; align-items:center; justify-content:center; color:var(--ink);
+  }
+  .photo-hero{ position:relative; width:100%; height:280px; background:linear-gradient(135deg,#8FA3D6,#3A4A78); overflow:hidden; }
+  .photo-hero img{ width:100%; height:100%; object-fit:cover; }
+  .photo-strip{ display:flex; gap:6px; overflow-x:auto; padding:8px 20px; scrollbar-width:none; }
+  .photo-strip::-webkit-scrollbar{ display:none; }
+  .photo-strip img{ width:64px; height:64px; border-radius:10px; object-fit:cover; flex-shrink:0; cursor:pointer; border:2px solid transparent; }
+  .photo-strip img.active{ border-color:var(--yellow); }
+
+  .content{ padding:16px 20px 0; }
+  .tag-row{ display:flex; gap:6px; margin-bottom:10px; }
+  .tag{ font-size:10px; font-weight:700; text-transform:uppercase; padding:4px 9px; border-radius:6px; background:#FDF1D9; color:var(--yellow-text); }
+  .tag.gender{ background:rgba(209,74,36,0.1); color:var(--coral); }
+  h1{ font-family:'Space Grotesk',sans-serif; font-size:19px; font-weight:700; margin-bottom:4px; }
+  .location{ font-size:13px; color:var(--muted); margin-bottom:14px; }
+  .price-line{ font-size:18px; font-weight:700; color:var(--yellow-text); font-family:'Space Grotesk',sans-serif; margin-bottom:18px; }
+  .price-line span{ font-size:12.5px; color:var(--muted-2); font-weight:500; }
+
+  .section-label{ font-size:12px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.03em; margin:20px 0 10px; }
+  .detail-grid{ display:grid; grid-template-columns:1fr 1fr; gap:8px 12px; }
+  .detail-item{ background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:11px 13px; }
+  .detail-item .dl{ font-size:10.5px; color:var(--muted-2); margin-bottom:2px; }
+  .detail-item .dv{ font-size:13px; font-weight:600; }
+
+  .rules-list{ display:flex; flex-wrap:wrap; gap:8px; }
+  .rule-chip{ font-size:11.5px; font-weight:600; padding:7px 12px; border-radius:20px; background:var(--surface); border:1px solid var(--line); }
+  .rule-chip.no{ color:var(--muted-2); text-decoration:line-through; opacity:0.6; }
+  .rule-chip.yes{ color:#1F6E5E; background:rgba(47,138,122,0.08); border-color:rgba(47,138,122,0.25); }
+
+  .booking-card{ background:var(--surface); border:1px solid var(--line); border-radius:16px; padding:16px; margin-top:20px; }
+  .date-row{ display:flex; gap:10px; margin-bottom:10px; }
+  .date-field{ flex:1; }
+  .date-field label{ display:block; font-size:11px; font-weight:600; color:var(--muted); margin-bottom:5px; }
+  .date-field input{ width:100%; padding:10px 12px; border-radius:10px; border:1px solid var(--line); font-size:13px; font-family:'Inter',sans-serif; }
+  .consent-row{ display:none; align-items:flex-start; gap:10px; background:var(--screen-bg); border-radius:10px; padding:11px 12px; margin-bottom:12px; font-size:12px; color:var(--ink); line-height:1.5; }
+  .consent-row.show{ display:flex; }
+  .consent-row input{ margin-top:2px; }
+  .summary-row{ display:flex; justify-content:space-between; font-size:13px; margin-bottom:6px; }
+  .summary-row.total{ font-weight:700; font-size:14.5px; border-top:1px solid var(--line); padding-top:10px; margin-top:6px; }
+  .book-btn{
+    width:100%; background:var(--yellow); color:#161006; text-align:center; font-weight:700; font-size:14.5px;
+    border-radius:14px; padding:14px; font-family:'Space Grotesk',sans-serif; border:none; margin-top:14px; cursor:pointer;
+  }
+  .book-btn:disabled{ opacity:0.6; }
+  .status-msg{ font-size:13px; margin-top:12px; padding:12px 14px; border-radius:12px; display:none; }
+  .status-msg.error{ display:block; background:rgba(209,74,36,0.1); color:#B03A1A; }
+  .status-msg.success{ display:block; background:rgba(47,138,122,0.1); color:#1F6E5E; }
+
+  .empty-note{ color:var(--muted-2); font-size:13px; text-align:center; padding:60px 20px; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div id="content">
+    <p class="empty-note">Loading…</p>
+  </div>
+</div>
+
+<script>
+  const params = new URLSearchParams(window.location.search);
+  const listingId = params.get('id');
+  const content = document.getElementById('content');
+  const token = localStorage.getItem('rentshare_session');
+
+  if (!listingId) {
+    content.innerHTML = '<p class="empty-note">No listing specified.</p>';
+  } else {
+    loadListing();
+  }
+
+  async function loadListing() {
+    try {
+      const res = await fetch(`/api/listings/${listingId}`);
+      if (!res.ok) throw new Error('Listing not found');
+      const data = await res.json();
+      renderListing(data.listing);
+    } catch (err) {
+      content.innerHTML = '<p class="empty-note">This listing couldn\'t be found. It may have been removed.</p>';
+    }
+  }
+
+  function renderListing(l) {
+    let photos = [];
+    try { photos = l.photos ? JSON.parse(l.photos) : []; } catch (e) {}
+
+    const tierLabel = l.tier === 'shared_room_with_host' ? 'Shared Room' : (l.tier === 'shared_space' ? 'Shared Space' : 'Private Room');
+    const genderLabel = l.gender_allocation === 'female_only' ? 'Women only' : (l.gender_allocation === 'male_only' ? 'Men only' : '');
+
+    content.innerHTML = `
+      <div class="photo-hero" id="hero-photo">
+        <a href="/" class="back-btn" aria-label="Back">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+        </a>
+        ${photos[0] ? `<img src="${photos[0]}" alt="">` : ''}
+      </div>
+      ${photos.length > 1 ? `<div class="photo-strip" id="photo-strip">${photos.map((p, i) => `<img src="${p}" class="${i === 0 ? 'active' : ''}" data-src="${p}">`).join('')}</div>` : ''}
+
+      <div class="content">
+        <div class="tag-row">
+          <span class="tag">${tierLabel}</span>
+          ${genderLabel ? `<span class="tag gender">${genderLabel}</span>` : ''}
+        </div>
+        <h1>${escapeHtml(l.title)}</h1>
+        <div class="location">${escapeHtml(l.area)}, ${escapeHtml(l.city)}</div>
+        <div class="price-line">₦${Number(l.price_per_night).toLocaleString()} <span>/ night</span></div>
+
+        <div class="section-label">Space details</div>
+        <div class="detail-grid">
+          ${l.tier !== 'private_room' ? `<div class="detail-item"><div class="dl">Lockable door</div><div class="dv">${l.lockable_door ? 'Yes' : 'No'}</div></div>` : ''}
+          <div class="detail-item"><div class="dl">Bathroom</div><div class="dv">${cap(l.bathroom_access || '—')}</div></div>
+          <div class="detail-item"><div class="dl">Access hours</div><div class="dv">${l.access_hours === 'curfew' ? 'Curfew' : '24-hour'}</div></div>
+          ${l.max_stay_nights ? `<div class="detail-item"><div class="dl">Max stay</div><div class="dv">${l.max_stay_nights} nights</div></div>` : ''}
+        </div>
+
+        <div class="section-label">House rules</div>
+        <div class="rules-list">
+          <span class="rule-chip ${l.allows_smoking ? 'yes' : 'no'}">Smoking</span>
+          <span class="rule-chip ${l.allows_pets ? 'yes' : 'no'}">Pets</span>
+          <span class="rule-chip ${l.allows_alcohol ? 'yes' : 'no'}">Alcohol</span>
+          <span class="rule-chip ${l.allows_visitors ? 'yes' : 'no'}">Visitors</span>
+          <span class="rule-chip ${l.allows_extra_guests ? 'yes' : 'no'}">Extra guests</span>
+          <span class="rule-chip ${l.allows_parties ? 'yes' : 'no'}">Parties</span>
+          ${l.quiet_hours_enabled ? `<span class="rule-chip yes">Quiet hours: ${escapeHtml(l.quiet_hours || '')}</span>` : ''}
+        </div>
+
+        <div class="booking-card">
+          <div class="section-label" style="margin-top:0;">Book this stay</div>
+          <div class="date-row">
+            <div class="date-field">
+              <label>Check-in</label>
+              <input type="date" id="check-in">
+            </div>
+            <div class="date-field">
+              <label>Check-out</label>
+              <input type="date" id="check-out">
+            </div>
+          </div>
+
+          <div class="consent-row ${l.tier === 'shared_room_with_host' ? 'show' : ''}" id="consent-row">
+            <input type="checkbox" id="room-consent">
+            <label for="room-consent">I understand I'll be sharing a bedroom directly with the host during this stay, and I'm choosing this booking with that understanding.</label>
+          </div>
+
+          <div id="price-summary" style="display:none;">
+            <div class="summary-row"><span id="nights-label"></span><span id="nights-amount"></span></div>
+            <div class="summary-row total"><span>Total</span><span id="total-amount"></span></div>
+          </div>
+
+          <button class="book-btn" id="book-btn">Request to book</button>
+          <div class="status-msg" id="status-msg"></div>
+        </div>
+      </div>
+    `;
+
+    wireUpInteractions(l);
+  }
+
+  function wireUpInteractions(l) {
+    const strip = document.getElementById('photo-strip');
+    if (strip) {
+      strip.addEventListener('click', (e) => {
+        const img = e.target.closest('img');
+        if (!img) return;
+        document.querySelectorAll('#photo-strip img').forEach((i) => i.classList.remove('active'));
+        img.classList.add('active');
+        document.querySelector('#hero-photo img').src = img.dataset.src;
+      });
+    }
+
+    const checkIn = document.getElementById('check-in');
+    const checkOut = document.getElementById('check-out');
+    const summary = document.getElementById('price-summary');
+    const today = new Date().toISOString().slice(0, 10);
+    checkIn.min = today;
+    checkOut.min = today;
+
+    function updateSummary() {
+      if (!checkIn.value || !checkOut.value) { summary.style.display = 'none'; return; }
+      const nights = Math.round((new Date(checkOut.value) - new Date(checkIn.value)) / 86400000);
+      if (nights < 1) { summary.style.display = 'none'; return; }
+      const total = nights * l.price_per_night;
+      document.getElementById('nights-label').textContent = `₦${Number(l.price_per_night).toLocaleString()} × ${nights} night${nights > 1 ? 's' : ''}`;
+      document.getElementById('nights-amount').textContent = `₦${total.toLocaleString()}`;
+      document.getElementById('total-amount').textContent = `₦${total.toLocaleString()}`;
+      summary.style.display = 'block';
+    }
+    checkIn.addEventListener('change', updateSummary);
+    checkOut.addEventListener('change', updateSummary);
+
+    const bookBtn = document.getElementById('book-btn');
+    const statusMsg = document.getElementById('status-msg');
+
+    bookBtn.addEventListener('click', async () => {
+      if (!token) {
+        window.location.href = '/login.html';
+        return;
+      }
+      if (!checkIn.value || !checkOut.value) {
+        statusMsg.className = 'status-msg error';
+        statusMsg.textContent = 'Please select check-in and check-out dates.';
+        return;
+      }
+      if (l.tier === 'shared_room_with_host' && !document.getElementById('room-consent').checked) {
+        statusMsg.className = 'status-msg error';
+        statusMsg.textContent = 'Please confirm you understand this is a shared room with the host.';
+        return;
+      }
+
+      bookBtn.disabled = true;
+      bookBtn.textContent = 'Requesting…';
+      statusMsg.className = 'status-msg';
+
+      try {
+        const res = await fetch('/api/bookings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+          body: JSON.stringify({
+            listing_id: l.id,
+            check_in_date: checkIn.value,
+            check_out_date: checkOut.value,
+            room_share_consent: l.tier === 'shared_room_with_host' ? true : undefined,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Something went wrong');
+
+        statusMsg.className = 'status-msg success';
+        statusMsg.textContent = 'Booking requested! (Payment isn\'t wired up yet — this records the request.)';
+        bookBtn.textContent = 'Requested';
+      } catch (err) {
+        statusMsg.className = 'status-msg error';
+        statusMsg.textContent = err.message;
+        bookBtn.disabled = false;
+        bookBtn.textContent = 'Request to book';
+      }
+    });
+  }
+
+  function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str || '';
+    return div.innerHTML;
+  }
+</script>
+</body>
+</html>

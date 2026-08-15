@@ -27,7 +27,83 @@ export default {
     // Everything else falls through to the static site in /public
     return env.ASSETS.fetch(request);
   },
+
+  // Runs every 15 minutes (see wrangler.toml [triggers]). Drives the
+  // presence-confirmation safety flow: triggers new prompts, re-triggers
+  // for ongoing multi-night stays every 48h, and marks overdue,
+  // unanswered ones as no_response (never auto-confirmed, never
+  // auto-flagged — silence stays neutral, per the finalized flow spec).
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(runPresenceConfirmationSweep(env));
+  },
 };
+
+async function runPresenceConfirmationSweep(env) {
+  const now = new Date();
+  const nowIso = now.toISOString();
+
+  // 1. First-time trigger: confirmed bookings within 24h of check-in
+  //    (same-day bookings will always match this immediately) that don't
+  //    have a cycle-1 presence_confirmation yet.
+  const dueForFirstCheck = await env.DB.prepare(`
+    SELECT b.* FROM bookings b
+    WHERE b.status = 'confirmed'
+      AND NOT EXISTS (SELECT 1 FROM presence_confirmations pc WHERE pc.booking_id = b.id AND pc.cycle_number = 1)
+      AND (julianday(b.check_in_date || ' ' || b.check_in_time) - julianday('now')) <= 1.0
+  `).all();
+
+  for (const booking of dueForFirstCheck.results) {
+    const deadline = new Date(`${booking.check_in_date}T${booking.check_in_time}:00Z`);
+    const id = crypto.randomUUID();
+    await env.DB.prepare(`
+      INSERT INTO presence_confirmations (id, booking_id, cycle_number, triggered_at, deadline_at, resulted_in_flag)
+      VALUES (?, ?, 1, ?, ?, 0)
+    `).bind(id, booking.id, nowIso, deadline.toISOString()).run();
+  }
+
+  // 2. Re-trigger every 48h for ongoing multi-night stays still within their booked dates.
+  const dueForRetrigger = await env.DB.prepare(`
+    SELECT b.id AS booking_id, MAX(pc.cycle_number) AS last_cycle, MAX(pc.triggered_at) AS last_triggered
+    FROM bookings b
+    JOIN presence_confirmations pc ON pc.booking_id = b.id
+    WHERE b.status IN ('presence_confirmed', 'checked_in')
+      AND b.check_out_date >= date('now')
+    GROUP BY b.id
+    HAVING (julianday('now') - julianday(last_triggered)) >= 2.0
+  `).all();
+
+  for (const row of dueForRetrigger.results) {
+    const nextCycle = row.last_cycle + 1;
+    const deadline = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    const id = crypto.randomUUID();
+    await env.DB.prepare(`
+      INSERT INTO presence_confirmations (id, booking_id, cycle_number, triggered_at, deadline_at, resulted_in_flag)
+      VALUES (?, ?, ?, ?, ?, 0)
+    `).bind(id, row.booking_id, nextCycle, nowIso, deadline.toISOString()).run();
+  }
+
+  // 3. Overdue, unanswered prompts: mark as no_response — never auto-confirmed,
+  //    never auto-flagged. Booking moves to presence_unconfirmed (visible to
+  //    the guest) and the host's non_response_count increments so a repeat
+  //    pattern is reviewable later, even though no single miss triggers anything.
+  const overdue = await env.DB.prepare(`
+    SELECT pc.id, pc.booking_id, b.host_id
+    FROM presence_confirmations pc
+    JOIN bookings b ON pc.booking_id = b.id
+    WHERE pc.host_response IS NULL AND pc.deadline_at < ?
+  `).bind(nowIso).all();
+
+  for (const row of overdue.results) {
+    await env.DB.prepare(`UPDATE presence_confirmations SET host_response = 'no_response', response_at = ? WHERE id = ?`)
+      .bind(nowIso, row.id).run();
+
+    await env.DB.prepare(`UPDATE bookings SET status = 'presence_unconfirmed', updated_at = ? WHERE id = ? AND status IN ('confirmed', 'presence_confirmed')`)
+      .bind(nowIso, row.booking_id).run();
+
+    await env.DB.prepare(`UPDATE users SET non_response_count = non_response_count + 1 WHERE id = ?`)
+      .bind(row.host_id).run();
+  }
+}
 
 async function handleApi(request, env, url) {
   const { pathname } = url;
@@ -126,7 +202,83 @@ async function handleApi(request, env, url) {
     return respondToBooking(request, env, bookingActionMatch[1], bookingActionMatch[2]);
   }
 
+  // GET /api/users/me/presence-pending — host's unanswered presence-confirmation prompts
+  if (pathname === '/api/users/me/presence-pending' && request.method === 'GET') {
+    return presencePending(request, env);
+  }
+
+  // POST /api/presence/:id/respond — host confirms "same as listed" or "changed"
+  const presenceMatch = pathname.match(/^\/api\/presence\/([\w-]+)\/respond$/);
+  if (presenceMatch && request.method === 'POST') {
+    return respondPresence(request, env, presenceMatch[1]);
+  }
+
   return json({ error: 'Not found' }, 404);
+}
+
+async function presencePending(request, env) {
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: 'Not logged in.' }, 401);
+
+  const { results } = await env.DB.prepare(`
+    SELECT pc.id AS presence_id, pc.booking_id, pc.cycle_number, pc.deadline_at,
+           l.title AS listing_title, b.check_in_date, b.check_out_date
+    FROM presence_confirmations pc
+    JOIN bookings b ON pc.booking_id = b.id
+    JOIN listings l ON b.listing_id = l.id
+    WHERE b.host_id = ? AND pc.host_response IS NULL
+    ORDER BY pc.deadline_at ASC
+  `).bind(user.id).all();
+
+  return json({ pending: results });
+}
+
+/**
+ * Host confirms whether the household is "same as listed" or "changed"
+ * for a specific booking. A "changed" response doesn't try to guess
+ * whether the new state still satisfies the gender-matching rule — it
+ * always routes to human review via safety_flags, since a live gender
+ * mismatch is exactly the scenario this platform's core safety rule
+ * exists to prevent.
+ */
+async function respondPresence(request, env, presenceId) {
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: 'Not logged in.' }, 401);
+
+  const { response } = await request.json();
+  if (!['same_as_listed', 'changed'].includes(response)) {
+    return json({ error: 'Invalid response.' }, 400);
+  }
+
+  const row = await env.DB.prepare(`
+    SELECT pc.*, b.host_id, b.id AS booking_id FROM presence_confirmations pc
+    JOIN bookings b ON pc.booking_id = b.id
+    WHERE pc.id = ?
+  `).bind(presenceId).first();
+
+  if (!row) return json({ error: 'Not found.' }, 404);
+  if (row.host_id !== user.id) return json({ error: 'Not authorized.' }, 403);
+  if (row.host_response !== null) return json({ error: 'Already responded.' }, 409);
+
+  const now = new Date().toISOString();
+  await env.DB.prepare(`UPDATE presence_confirmations SET host_response = ?, response_at = ? WHERE id = ?`)
+    .bind(response, now, presenceId).run();
+
+  if (response === 'changed') {
+    await env.DB.prepare(`UPDATE presence_confirmations SET resulted_in_flag = 1 WHERE id = ?`).bind(presenceId).run();
+    await env.DB.prepare(`UPDATE bookings SET status = 'flagged', updated_at = ? WHERE id = ?`).bind(now, row.booking_id).run();
+
+    const flagId = crypto.randomUUID();
+    await env.DB.prepare(`
+      INSERT INTO safety_flags (id, booking_id, raised_by, flag_type, description, status, created_at)
+      VALUES (?, ?, 'host', 'presence_mismatch', 'Host reported household presence has changed from what was listed.', 'pending_review', ?)
+    `).bind(flagId, row.booking_id, now).run();
+  } else {
+    await env.DB.prepare(`UPDATE bookings SET status = 'presence_confirmed', updated_at = ? WHERE id = ? AND status IN ('confirmed', 'presence_confirmed')`)
+      .bind(now, row.booking_id).run();
+  }
+
+  return json({ id: presenceId, response });
 }
 
 /**

@@ -10,8 +10,10 @@ binding = "ASSETS"
 binding = "DB"
 database_name = "rentshare-db"
 database_id = "3a6e52c1-5c00-4e1f-9c01-91a24a84f134"
+
 [[r2_buckets]]
 binding = "PHOTOS"
 bucket_name = "rentshare-photos"
 
-
+[triggers]
+crons = ["*/15 * * * *"]

@@ -120,7 +120,38 @@ async function handleApi(request, env, url) {
     return sendMessage(request, env);
   }
 
+  // POST /api/bookings/:id/accept or /decline — host responds to a booking request
+  const bookingActionMatch = pathname.match(/^\/api\/bookings\/([\w-]+)\/(accept|decline)$/);
+  if (bookingActionMatch && request.method === 'POST') {
+    return respondToBooking(request, env, bookingActionMatch[1], bookingActionMatch[2]);
+  }
+
   return json({ error: 'Not found' }, 404);
+}
+
+/**
+ * Host accepts or declines a 'requested' booking. Only the host on
+ * that specific booking can act on it — this is the missing link
+ * between a guest's booking request and everything downstream
+ * (presence confirmation, check-in, etc.), which previously had no
+ * way to ever actually happen since bookings just sat at 'requested'.
+ */
+async function respondToBooking(request, env, bookingId, action) {
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: 'Not logged in.' }, 401);
+
+  const booking = await env.DB.prepare(`SELECT * FROM bookings WHERE id = ?`).bind(bookingId).first();
+  if (!booking) return json({ error: 'Booking not found.' }, 404);
+  if (booking.host_id !== user.id) return json({ error: 'Only the host can respond to this booking.' }, 403);
+  if (booking.status !== 'requested') return json({ error: 'This booking has already been responded to.' }, 409);
+
+  const newStatus = action === 'accept' ? 'confirmed' : 'cancelled';
+  const now = new Date().toISOString();
+
+  await env.DB.prepare(`UPDATE bookings SET status = ?, updated_at = ? WHERE id = ?`)
+    .bind(newStatus, now, bookingId).run();
+
+  return json({ id: bookingId, status: newStatus });
 }
 
 /**

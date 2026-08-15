@@ -8,7 +8,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/styles.css">
 <style>
-  .form-wrap{ max-width:var(--max-width); margin:0 auto; padding:20px 20px 60px; }
+  .form-wrap{ max-width:var(--max-width); margin:0 auto; padding:20px 20px 90px; }
   .back-btn{
     width:34px; height:34px; border-radius:10px; background:var(--surface);
     border:1px solid var(--line); display:flex; align-items:center; justify-content:center;
@@ -216,7 +216,40 @@
   </form>
 </div>
 
+<footer class="tabbar" id="tabbar">
+  <a href="/" class="tab">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-7 9 7"/><path d="M5 9.5V21h14V9.5"/></svg>
+    Home
+  </a>
+  <a href="/search.html" class="tab">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+    Search
+  </a>
+  <a href="/login.html" class="tab" id="bookings-tab">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18M8 2v4M16 2v4"/></svg>
+    Bookings
+  </a>
+  <a href="/login.html" class="tab" id="chats-tab">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-8.9 8.4 8.5 8.5 0 0 1-3.8-.9L3 20l1-4.5A8.4 8.4 0 1 1 21 11.5Z"/></svg>
+    Chats
+  </a>
+  <a href="/login.html" class="tab" id="profile-tab">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+    Profile
+  </a>
+</footer>
+
 <script>
+  // Bottom nav reflects login state, same pattern as the homepage — if
+  // already logged in, Bookings/Chats/Profile go straight to their real
+  // pages instead of Login.
+  const sessionToken = localStorage.getItem('rentshare_session');
+  if (sessionToken) {
+    document.getElementById('bookings-tab').href = '/bookings.html';
+    document.getElementById('chats-tab').href = '/chats.html';
+    document.getElementById('profile-tab').href = '/profile.html';
+  }
+
   const tierTabs = document.querySelectorAll('.type-tab');
   const tierInput = document.getElementById('tier-input');
   const genderFields = document.getElementById('gender-fields');
@@ -309,7 +342,6 @@
     payload.photos = uploadedPhotos.map((p) => p.url);
 
     try {
-      const sessionToken = localStorage.getItem('rentshare_session');
       const headers = { 'Content-Type': 'application/json' };
       if (sessionToken) headers.Authorization = `Bearer ${sessionToken}`;
 
@@ -325,7 +357,8 @@
       }
 
       statusMsg.className = 'status-msg success';
-      statusMsg.textContent = "Listing submitted — it's now pending review before it goes live.";
+      statusMsg.innerHTML = `Listing submitted — it's now pending review before it goes live. <a href="/" style="color:#1F6E5E; font-weight:700; text-decoration:underline;">Back to home</a>`;
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       form.reset();
       updateGenderVisibility('private_room');
       tierTabs.forEach((t) => t.classList.remove('active'));

@@ -42,6 +42,11 @@ async function handleApi(request, env, url) {
     return createBooking(request, env);
   }
 
+  // POST /api/listings — host submits a new listing (List your space page)
+  if (pathname === '/api/listings' && request.method === 'POST') {
+    return createListing(request, env);
+  }
+
   // POST /api/users/verify-bank — Paystack Resolve cross-check (Step A″)
   if (pathname === '/api/users/verify-bank' && request.method === 'POST') {
     return verifyBank(request, env);
@@ -143,6 +148,83 @@ async function createBooking(request, env) {
   ).run();
 
   return json({ booking_id: id, status: 'requested' }, 201);
+}
+
+/**
+ * Host submits the "List your space" form. No login system exists yet,
+ * so this finds-or-creates the host's user record (matched by phone,
+ * since that's the one field guaranteed present) and creates the
+ * listing in the same request.
+ *
+ * New listings save with status='pending_review', NOT 'active' —
+ * verification (Paystack Resolve name-match, ID checks) isn't wired
+ * into this flow yet, so nothing should go live automatically until
+ * that's built. A manual review step (or an admin approval endpoint,
+ * still TODO) is what flips status to 'active'.
+ */
+async function createListing(request, env) {
+  const body = await request.json();
+  const {
+    full_name, phone, host_gender, bank_account_number, bank_code,
+    tier, title, city, area, address, price_per_night,
+    gender_allocation, lockable_door, bathroom_access, access_hours, max_stay_nights,
+    allows_smoking, allows_pets, allows_alcohol,
+  } = body;
+
+  if (!full_name || !phone || !host_gender || !bank_account_number || !bank_code) {
+    return json({ error: 'Missing required host details.' }, 400);
+  }
+  if (!title || !city || !area || !address || !price_per_night) {
+    return json({ error: 'Missing required listing details.' }, 400);
+  }
+  if ((tier === 'shared_space' || tier === 'shared_room_with_host') && !gender_allocation) {
+    return json({ error: 'Gender allocation is required for this listing type.' }, 400);
+  }
+
+  // Find or create the host user record
+  let host = await env.DB.prepare(`SELECT * FROM users WHERE phone = ?`).bind(phone).first();
+
+  if (!host) {
+    // Bank account must be unique — check before insert to give a clear error
+    // rather than letting the UNIQUE constraint throw a raw SQL error.
+    const existingBank = await env.DB.prepare(`SELECT id FROM users WHERE bank_account_number = ?`).bind(bank_account_number).first();
+    if (existingBank) {
+      return json({ error: 'This bank account is already linked to a Rentshare account.' }, 409);
+    }
+
+    const hostId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    await env.DB.prepare(`
+      INSERT INTO users (id, full_name, phone, gender, bank_account_number, bank_code, verification_status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'unverified', ?, ?)
+    `).bind(hostId, full_name, phone, host_gender, bank_account_number, bank_code, now, now).run();
+
+    host = { id: hostId };
+  }
+
+  const listingId = crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  await env.DB.prepare(`
+    INSERT INTO listings (
+      id, host_id, tier, title, city, area, address, price_per_night,
+      gender_allocation, lockable_door, bathroom_access, access_hours, max_stay_nights,
+      allows_smoking, allows_pets, allows_alcohol, status, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_review', ?, ?)
+  `).bind(
+    listingId, host.id, tier, title, city, area, address, price_per_night,
+    gender_allocation || null,
+    lockable_door ? 1 : 0,
+    bathroom_access || 'shared',
+    access_hours || '24h',
+    max_stay_nights || null,
+    allows_smoking ? 1 : 0,
+    allows_pets ? 1 : 0,
+    allows_alcohol ? 1 : 0,
+    now, now
+  ).run();
+
+  return json({ listing_id: listingId, status: 'pending_review' }, 201);
 }
 
 /**

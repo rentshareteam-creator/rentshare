@@ -41,6 +41,15 @@
   .status-pill.cancelled, .status-pill.flagged, .status-pill.disputed{ background:rgba(209,74,36,0.1); color:#B03A1A; }
   .status-pill.presence_unconfirmed{ background:rgba(209,74,36,0.08); color:#B03A1A; }
 
+  .action-row{ display:flex; gap:8px; margin-top:8px; }
+  .action-btn{
+    flex:1; padding:8px; border-radius:10px; font-weight:700; font-size:11.5px; cursor:pointer;
+    font-family:'Space Grotesk',sans-serif; border:none;
+  }
+  .action-btn.accept{ background:var(--teal); color:#fff; }
+  .action-btn.decline{ background:transparent; border:1px solid var(--coral); color:var(--coral); }
+  .action-btn:disabled{ opacity:0.6; }
+
   .empty-note{ color:var(--muted-2); font-size:13px; text-align:center; padding:60px 20px; }
 </style>
 </head>
@@ -112,19 +121,41 @@
       let photos = [];
       try { photos = b.photos ? JSON.parse(b.photos) : []; } catch (e) {}
       const thumb = photos[0] ? `<img src="${photos[0]}" alt="">` : '';
+      const showActions = currentView === 'host' && b.status === 'requested';
 
       return `
-        <a href="/listing.html?id=${b.listing_id}" class="booking-card" style="text-decoration:none; color:inherit;">
-          <div class="booking-thumb">${thumb}</div>
-          <div class="booking-info">
-            <div class="booking-title">${escapeHtml(b.title)}</div>
-            <div class="booking-meta">${escapeHtml(b.area)}, ${escapeHtml(b.city)}</div>
-            <div class="booking-dates">${formatDate(b.check_in_date)} → ${formatDate(b.check_out_date)}</div>
-            <span class="status-pill ${b.status}">${b.status.replace(/_/g, ' ')}</span>
+        <div class="booking-card">
+          <a href="/listing.html?id=${b.listing_id}" style="text-decoration:none; color:inherit; display:flex; gap:12px; flex:1; min-width:0;">
+            <div class="booking-thumb">${thumb}</div>
+            <div class="booking-info">
+              <div class="booking-title">${escapeHtml(b.title)}</div>
+              <div class="booking-meta">${escapeHtml(b.area)}, ${escapeHtml(b.city)}</div>
+              <div class="booking-dates">${formatDate(b.check_in_date)} → ${formatDate(b.check_out_date)}</div>
+              <span class="status-pill ${b.status}">${b.status.replace(/_/g, ' ')}</span>
+            </div>
+          </a>
+        </div>
+        ${showActions ? `
+          <div class="action-row" style="margin: -6px 0 12px;">
+            <button class="action-btn accept" onclick="respondBooking('${b.id}', 'accept')">Accept</button>
+            <button class="action-btn decline" onclick="respondBooking('${b.id}', 'decline')">Decline</button>
           </div>
-        </a>
+        ` : ''}
       `;
     }).join('');
+  }
+
+  async function respondBooking(bookingId, action) {
+    try {
+      const res = await fetch(`/api/bookings/${bookingId}/${action}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('Failed');
+      await loadBookings();
+    } catch (err) {
+      alert("Couldn't update this booking — try again.");
+    }
   }
 
   function formatDate(d) {

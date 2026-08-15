@@ -9,23 +9,38 @@ const typeTabs = document.querySelectorAll('.type-tab');
 const areaChips = document.querySelectorAll('.area-chip');
 const listingsEl = document.getElementById('listings');
 
-// Account icon reflects login state — links to login when signed out,
-// and logs out on tap when signed in (no dedicated profile page yet).
+// Account icon + bottom nav reflect login state.
+// Logged out: everything points to login.html.
+// Logged in: account icon and Profile tab go to the real profile page.
+// Bookings/Chats pages don't exist yet, so — while logged in — they
+// point to profile.html too (closest real destination) rather than
+// sending a logged-in user back to the login screen, which would be
+// a confusing dead end. Swap these to their own real pages once built.
 const accountBtn = document.getElementById('account-btn');
+const bookingsTab = document.getElementById('bookings-tab');
+const chatsTab = document.getElementById('chats-tab');
+const profileTab = document.getElementById('profile-tab');
 const sessionToken = localStorage.getItem('rentshare_session');
-if (accountBtn && sessionToken) {
-  accountBtn.removeAttribute('href');
-  accountBtn.style.color = 'var(--yellow-text)';
-  accountBtn.addEventListener('click', async (e) => {
+
+if (sessionToken) {
+  if (accountBtn) {
+    accountBtn.href = '/profile.html';
+    accountBtn.style.color = 'var(--yellow-text)';
+  }
+  if (profileTab) profileTab.href = '/profile.html';
+  if (bookingsTab) bookingsTab.href = '/profile.html';
+  if (chatsTab) chatsTab.href = '/profile.html';
+}
+
+// Notification bell — links to login when signed out, same as account.
+// Once signed in, there's no notifications page yet, so it's a
+// placeholder tap rather than a dead link or a redirect to login.
+const notifBtn = document.getElementById('notif-btn');
+if (notifBtn && sessionToken) {
+  notifBtn.removeAttribute('href');
+  notifBtn.addEventListener('click', (e) => {
     e.preventDefault();
-    if (confirm('Log out of Rentshare?')) {
-      await fetch('/api/auth/logout', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${sessionToken}` },
-      });
-      localStorage.removeItem('rentshare_session');
-      window.location.reload();
-    }
+    alert('Notifications for new bookings and messages are coming soon.');
   });
 }
 

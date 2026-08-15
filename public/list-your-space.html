@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>List your space — Rentshare</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/styles.css">
+<style>
+  .form-wrap{ max-width:var(--max-width); margin:0 auto; padding:20px 20px 60px; }
+  .back-btn{
+    width:34px; height:34px; border-radius:10px; background:var(--surface);
+    border:1px solid var(--line); display:flex; align-items:center; justify-content:center;
+    margin-bottom:16px; color:var(--ink);
+  }
+  h1{ font-family:'Space Grotesk',sans-serif; font-size:22px; font-weight:700; margin-bottom:4px; }
+  .lede{ color:var(--muted); font-size:13px; margin-bottom:24px; }
+  .section-label{
+    font-size:12px; font-weight:600; color:var(--muted); text-transform:uppercase;
+    letter-spacing:.04em; margin:24px 0 12px;
+  }
+  .field{
+    background:var(--surface); border:1px solid var(--line); border-radius:14px;
+    padding:13px 15px; margin-bottom:10px;
+  }
+  .field label{ display:block; font-size:12.5px; font-weight:600; margin-bottom:6px; }
+  .field .fs{ display:block; font-size:11px; color:var(--muted-2); margin-bottom:6px; }
+  .field input, .field select, .field textarea{
+    width:100%; background:transparent; border:none; outline:none;
+    font-size:14px; font-family:'Inter',sans-serif; color:var(--ink);
+  }
+  .field select{ -webkit-appearance:none; appearance:none; }
+  .field textarea{ resize:vertical; min-height:60px; }
+
+  .type-tabs{ display:flex; flex-wrap:wrap; gap:8px; margin-bottom:6px; }
+  .type-tab{
+    flex:1 1 calc(50% - 4px); text-align:center; padding:11px 8px; border-radius:13px;
+    background:var(--surface); border:1.5px solid var(--line); font-size:12px; font-weight:600; color:var(--muted);
+    cursor:pointer;
+  }
+  .type-tab.active{ background:#FDF1D9; border-color:var(--yellow); color:var(--yellow-text); }
+
+  .toggle-row{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .toggle-row .tt{ font-size:13px; font-weight:600; }
+  input[type=checkbox]{ width:20px; height:20px; }
+
+  .gender-tier-only{ display:none; }
+  .gender-tier-only.show{ display:block; }
+
+  .cta{
+    width:100%; background:var(--yellow); color:#161006; text-align:center;
+    font-weight:700; font-size:14.5px; border-radius:14px; padding:14px;
+    font-family:'Space Grotesk',sans-serif; border:none; margin-top:20px; cursor:pointer;
+  }
+  .cta:disabled{ opacity:0.6; }
+  .status-msg{ font-size:13px; margin-top:12px; padding:12px 14px; border-radius:12px; display:none; }
+  .status-msg.error{ display:block; background:rgba(209,74,36,0.1); color:#B03A1A; }
+  .status-msg.success{ display:block; background:rgba(47,138,122,0.1); color:#1F6E5E; }
+</style>
+</head>
+<body>
+
+<div class="form-wrap">
+  <a href="/" class="back-btn" aria-label="Back">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+  </a>
+  <h1>List your space</h1>
+  <p class="lede">Takes a few minutes. Your listing goes to review before it's visible to guests.</p>
+
+  <form id="listing-form">
+
+    <div class="section-label">About you (host)</div>
+    <div class="field">
+      <label>Full name</label>
+      <input type="text" name="full_name" required placeholder="As it appears on your ID">
+    </div>
+    <div class="field">
+      <label>Phone number</label>
+      <input type="tel" name="phone" required placeholder="080...">
+    </div>
+    <div class="field">
+      <label>Your gender</label>
+      <select name="host_gender" required>
+        <option value="">Select</option>
+        <option value="female">Female</option>
+        <option value="male">Male</option>
+      </select>
+    </div>
+    <div class="field">
+      <label>Bank account number</label>
+      <span class="fs">Used to verify your identity and pay you out — never shown to guests</span>
+      <input type="text" name="bank_account_number" required placeholder="10-digit account number">
+    </div>
+    <div class="field">
+      <label>Bank code</label>
+      <span class="fs">e.g. 058 for GTBank, 044 for Access — full list coming soon</span>
+      <input type="text" name="bank_code" required placeholder="e.g. 058">
+    </div>
+
+    <div class="section-label">What are you listing?</div>
+    <div class="type-tabs" id="tier-tabs">
+      <div class="type-tab active" data-tier="private_room">Private Room</div>
+      <div class="type-tab" data-tier="shared_space">Shared Space</div>
+      <div class="type-tab" data-tier="shared_room_with_host">Shared Room</div>
+    </div>
+    <input type="hidden" name="tier" id="tier-input" value="private_room">
+
+    <div class="field">
+      <label>Title</label>
+      <input type="text" name="title" required placeholder="e.g. Cosy self-contained, Yaba">
+    </div>
+    <div class="field">
+      <label>City</label>
+      <input type="text" name="city" required placeholder="Lagos">
+    </div>
+    <div class="field">
+      <label>Area</label>
+      <input type="text" name="area" required placeholder="Yaba">
+    </div>
+    <div class="field">
+      <label>Full address</label>
+      <span class="fs">Only shown to guests after a booking is confirmed</span>
+      <textarea name="address" required placeholder="Street, house number, landmark"></textarea>
+    </div>
+    <div class="field">
+      <label>Price per night (₦)</label>
+      <input type="number" name="price_per_night" required min="1000" placeholder="15000">
+    </div>
+
+    <div class="gender-tier-only" id="gender-fields">
+      <div class="section-label">Space gender allocation — required</div>
+      <div class="field">
+        <span class="fs">Rentshare rule: bookings from the other gender are blocked automatically. This can't be changed later.</span>
+        <select name="gender_allocation" id="gender-select">
+          <option value="">Select</option>
+          <option value="female_only">Female guests only</option>
+          <option value="male_only">Male guests only</option>
+        </select>
+      </div>
+
+      <div class="section-label">Space details</div>
+      <div class="field">
+        <div class="toggle-row">
+          <span class="tt">Door with a lock</span>
+          <input type="checkbox" name="lockable_door">
+        </div>
+      </div>
+      <div class="field">
+        <label>Bathroom access</label>
+        <select name="bathroom_access">
+          <option value="shared">Shared</option>
+          <option value="private">Private</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Access hours</label>
+        <select name="access_hours">
+          <option value="24h">24-hour access</option>
+          <option value="curfew">Set curfew</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Max stay (nights)</label>
+        <input type="number" name="max_stay_nights" min="1" placeholder="7">
+      </div>
+    </div>
+
+    <div class="section-label">House rules</div>
+    <div class="field">
+      <div class="toggle-row"><span class="tt">Smoking allowed</span><input type="checkbox" name="allows_smoking"></div>
+    </div>
+    <div class="field">
+      <div class="toggle-row"><span class="tt">Pets allowed</span><input type="checkbox" name="allows_pets"></div>
+    </div>
+    <div class="field">
+      <div class="toggle-row"><span class="tt">Alcohol allowed</span><input type="checkbox" name="allows_alcohol"></div>
+    </div>
+
+    <button type="submit" class="cta" id="submit-btn">Submit listing for review</button>
+    <div class="status-msg" id="status-msg"></div>
+  </form>
+</div>
+
+<script>
+  const tierTabs = document.querySelectorAll('.type-tab');
+  const tierInput = document.getElementById('tier-input');
+  const genderFields = document.getElementById('gender-fields');
+  const genderSelect = document.getElementById('gender-select');
+
+  function updateGenderVisibility(tier) {
+    if (tier === 'shared_space' || tier === 'shared_room_with_host') {
+      genderFields.classList.add('show');
+      genderSelect.required = true;
+    } else {
+      genderFields.classList.remove('show');
+      genderSelect.required = false;
+    }
+  }
+
+  tierTabs.forEach((tab) => {
+    tab.addEventListener('click', () => {
+      tierTabs.forEach((t) => t.classList.remove('active'));
+      tab.classList.add('active');
+      tierInput.value = tab.dataset.tier;
+      updateGenderVisibility(tab.dataset.tier);
+    });
+  });
+
+  const form = document.getElementById('listing-form');
+  const submitBtn = document.getElementById('submit-btn');
+  const statusMsg = document.getElementById('status-msg');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Submitting…';
+    statusMsg.className = 'status-msg';
+
+    const formData = new FormData(form);
+    const payload = Object.fromEntries(formData.entries());
+    payload.lockable_door = form.lockable_door.checked;
+    payload.allows_smoking = form.allows_smoking.checked;
+    payload.allows_pets = form.allows_pets.checked;
+    payload.allows_alcohol = form.allows_alcohol.checked;
+
+    try {
+      const res = await fetch('/api/listings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Something went wrong');
+      }
+
+      statusMsg.className = 'status-msg success';
+      statusMsg.textContent = "Listing submitted — it's now pending review before it goes live.";
+      form.reset();
+      updateGenderVisibility('private_room');
+      tierTabs.forEach((t) => t.classList.remove('active'));
+      tierTabs[0].classList.add('active');
+      tierInput.value = 'private_room';
+    } catch (err) {
+      statusMsg.className = 'status-msg error';
+      statusMsg.textContent = err.message;
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Submit listing for review';
+    }
+  });
+</script>
+</body>
+</html>

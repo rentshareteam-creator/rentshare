@@ -74,7 +74,152 @@ async function handleApi(request, env, url) {
     return uploadPhoto(request, env);
   }
 
+  // POST /api/auth/signup — create account with password
+  if (pathname === '/api/auth/signup' && request.method === 'POST') {
+    return authSignup(request, env);
+  }
+
+  // POST /api/auth/login
+  if (pathname === '/api/auth/login' && request.method === 'POST') {
+    return authLogin(request, env);
+  }
+
+  // POST /api/auth/logout
+  if (pathname === '/api/auth/logout' && request.method === 'POST') {
+    return authLogout(request, env);
+  }
+
   return json({ error: 'Not found' }, 404);
+}
+
+/**
+ * Password hashing using PBKDF2 via the Web Crypto API (built into
+ * Workers — no external library needed). Each password gets its own
+ * random salt; the stored value is "salt:hash" so verification can
+ * re-derive with the same salt later.
+ */
+async function hashPassword(password, saltHex) {
+  const encoder = new TextEncoder();
+  const salt = saltHex
+    ? new Uint8Array(saltHex.match(/.{2}/g).map((b) => parseInt(b, 16)))
+    : crypto.getRandomValues(new Uint8Array(16));
+
+  const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits']);
+  const derivedBits = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' },
+    keyMaterial,
+    256
+  );
+
+  const hashHex = [...new Uint8Array(derivedBits)].map((b) => b.toString(16).padStart(2, '0')).join('');
+  const saltHexOut = [...salt].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return `${saltHexOut}:${hashHex}`;
+}
+
+async function verifyPassword(password, stored) {
+  if (!stored || !stored.includes(':')) return false;
+  const [saltHex] = stored.split(':');
+  const recomputed = await hashPassword(password, saltHex);
+  return recomputed === stored;
+}
+
+async function authSignup(request, env) {
+  const { full_name, phone, gender, bank_account_number, bank_code, password } = await request.json();
+
+  if (!full_name || !phone || !gender || !bank_account_number || !bank_code || !password) {
+    return json({ error: 'All fields are required.' }, 400);
+  }
+  if (password.length < 8) {
+    return json({ error: 'Password must be at least 8 characters.' }, 400);
+  }
+
+  const existingPhone = await env.DB.prepare(`SELECT id, password_hash FROM users WHERE phone = ?`).bind(phone).first();
+  if (existingPhone && existingPhone.password_hash) {
+    return json({ error: 'An account with this phone number already exists. Try logging in instead.' }, 409);
+  }
+
+  const existingBank = await env.DB.prepare(`SELECT id FROM users WHERE bank_account_number = ? AND phone != ?`).bind(bank_account_number, phone).first();
+  if (existingBank) {
+    return json({ error: 'This bank account is already linked to a Rentshare account.' }, 409);
+  }
+
+  const passwordHash = await hashPassword(password);
+  const now = new Date().toISOString();
+  let userId;
+
+  if (existingPhone) {
+    // Legacy account created via "List your space" before login existed —
+    // add a password to it rather than creating a duplicate.
+    userId = existingPhone.id;
+    await env.DB.prepare(`UPDATE users SET password_hash = ?, full_name = ?, gender = ?, bank_account_number = ?, bank_code = ?, updated_at = ? WHERE id = ?`)
+      .bind(passwordHash, full_name, gender, bank_account_number, bank_code, now, userId).run();
+  } else {
+    userId = crypto.randomUUID();
+    await env.DB.prepare(`
+      INSERT INTO users (id, full_name, phone, gender, bank_account_number, bank_code, password_hash, verification_status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'unverified', ?, ?)
+    `).bind(userId, full_name, phone, gender, bank_account_number, bank_code, passwordHash, now, now).run();
+  }
+
+  const sessionToken = await createSession(env, userId);
+  return json({ session_token: sessionToken, user_id: userId }, 201);
+}
+
+async function authLogin(request, env) {
+  const { phone, password } = await request.json();
+  if (!phone || !password) return json({ error: 'Phone and password are required.' }, 400);
+
+  const user = await env.DB.prepare(`SELECT id, password_hash, is_banned FROM users WHERE phone = ?`).bind(phone).first();
+  if (!user || !user.password_hash) {
+    return json({ error: 'Incorrect phone number or password.' }, 401);
+  }
+  if (user.is_banned) {
+    return json({ error: 'This account has been suspended.' }, 403);
+  }
+
+  const valid = await verifyPassword(password, user.password_hash);
+  if (!valid) {
+    return json({ error: 'Incorrect phone number or password.' }, 401);
+  }
+
+  const sessionToken = await createSession(env, user.id);
+  return json({ session_token: sessionToken, user_id: user.id });
+}
+
+async function authLogout(request, env) {
+  const token = request.headers.get('Authorization')?.replace('Bearer ', '');
+  if (token) {
+    await env.DB.prepare(`DELETE FROM sessions WHERE id = ?`).bind(token).run();
+  }
+  return json({ success: true });
+}
+
+async function createSession(env, userId) {
+  const sessionId = crypto.randomUUID();
+  const now = new Date();
+  const expires = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000); // 30 days
+
+  await env.DB.prepare(`INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)`)
+    .bind(sessionId, userId, now.toISOString(), expires.toISOString()).run();
+
+  return sessionId;
+}
+
+/**
+ * Validates a session token from the Authorization header and returns
+ * the associated user, or null. Used to gate actions that now require
+ * login (e.g. listing on behalf of a phone number that already has a
+ * password set).
+ */
+async function getSessionUser(request, env) {
+  const token = request.headers.get('Authorization')?.replace('Bearer ', '');
+  if (!token) return null;
+
+  const session = await env.DB.prepare(`SELECT user_id, expires_at FROM sessions WHERE id = ?`).bind(token).first();
+  if (!session) return null;
+  if (new Date(session.expires_at) < new Date()) return null;
+
+  return env.DB.prepare(`SELECT * FROM users WHERE id = ?`).bind(session.user_id).first();
 }
 
 /**
@@ -253,16 +398,15 @@ async function createBooking(request, env) {
 }
 
 /**
- * Host submits the "List your space" form. No login system exists yet,
- * so this finds-or-creates the host's user record (matched by phone,
- * since that's the one field guaranteed present) and creates the
- * listing in the same request.
+ * Host submits the "List your space" form. Finds-or-creates the host's
+ * user record by phone, but if that phone already has a password set
+ * (a real account), requires a valid logged-in session for that exact
+ * user before allowing the listing — see the check below.
  *
  * New listings save with status='pending_review', NOT 'active' —
  * verification (Paystack Resolve name-match, ID checks) isn't wired
  * into this flow yet, so nothing should go live automatically until
- * that's built. A manual review step (or an admin approval endpoint,
- * still TODO) is what flips status to 'active'.
+ * that's built.
  */
 async function createListing(request, env) {
   const body = await request.json();
@@ -287,6 +431,16 @@ async function createListing(request, env) {
 
   // Find or create the host user record
   let host = await env.DB.prepare(`SELECT * FROM users WHERE phone = ?`).bind(phone).first();
+
+  if (host && host.password_hash) {
+    // This phone number has a real account with a password now — no
+    // longer safe to let anyone type the number in and list on their
+    // behalf. Require a valid session matching this exact user.
+    const sessionUser = await getSessionUser(request, env);
+    if (!sessionUser || sessionUser.id !== host.id) {
+      return json({ error: 'This phone number has an account. Please log in to list a space.' }, 401);
+    }
+  }
 
   if (!host) {
     // Bank account must be unique — check before insert to give a clear error

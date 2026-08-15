@@ -83,4 +83,229 @@
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
     </a>
     <div class="search-bar">
-      
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+      <input type="text" id="area-input" placeholder="Search by area — Lekki, Yaba, Ikeja…">
+    </div>
+    <button class="filter-toggle" id="filter-toggle" aria-label="Filters">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M8 12h8M11 18h2"/></svg>
+    </button>
+  </div>
+
+  <div class="filters-panel" id="filters-panel">
+    <div class="filter-group">
+      <div class="filter-label">Stay type</div>
+      <div class="chip-select" id="tier-chips">
+        <div class="chip-opt active" data-tier="">All</div>
+        <div class="chip-opt" data-tier="private_room">Private Room</div>
+        <div class="chip-opt" data-tier="shared_space">Shared Space</div>
+        <div class="chip-opt" data-tier="shared_room_with_host">Shared Room</div>
+      </div>
+    </div>
+
+    <div class="filter-group" id="gender-filter-group" style="display:none;">
+      <div class="filter-label">Gender allocation</div>
+      <div class="chip-select" id="gender-chips">
+        <div class="chip-opt active" data-gender="">Any</div>
+        <div class="chip-opt" data-gender="female">Female only</div>
+        <div class="chip-opt" data-gender="male">Male only</div>
+      </div>
+    </div>
+
+    <div class="filter-group">
+      <div class="filter-label">Price per night (₦)</div>
+      <div class="price-row">
+        <input type="number" id="price-min" placeholder="Min">
+        <span style="color:var(--muted-2);">—</span>
+        <input type="number" id="price-max" placeholder="Max">
+      </div>
+    </div>
+
+    <div class="filter-group">
+      <div class="filter-label">House rules</div>
+      <div class="chip-select" id="rules-chips">
+        <div class="chip-opt" data-rule="allows_smoking">Smoking OK</div>
+        <div class="chip-opt" data-rule="allows_pets">Pets OK</div>
+        <div class="chip-opt" data-rule="allows_parties">Parties OK</div>
+        <div class="chip-opt" data-rule="allows_visitors">Visitors OK</div>
+      </div>
+    </div>
+
+    <div class="filter-actions">
+      <button class="btn-clear" id="btn-clear">Clear all</button>
+      <button class="btn-apply" id="btn-apply">Apply filters</button>
+    </div>
+  </div>
+
+  <div class="result-count" id="result-count"></div>
+  <div id="listings" class="listing-list"><p class="empty-note">Loading…</p></div>
+</div>
+
+<script>
+  const state = { area: '', tier: '', gender: '', priceMin: null, priceMax: null, rules: new Set() };
+
+  const filterToggle = document.getElementById('filter-toggle');
+  const filtersPanel = document.getElementById('filters-panel');
+  filterToggle.addEventListener('click', () => filtersPanel.classList.toggle('open'));
+
+  const areaInput = document.getElementById('area-input');
+  let searchDebounce;
+  areaInput.addEventListener('input', () => {
+    clearTimeout(searchDebounce);
+    searchDebounce = setTimeout(() => {
+      state.area = areaInput.value.trim();
+      loadListings();
+    }, 400);
+  });
+
+  document.getElementById('tier-chips').addEventListener('click', (e) => {
+    const chip = e.target.closest('.chip-opt');
+    if (!chip) return;
+    document.querySelectorAll('#tier-chips .chip-opt').forEach((c) => c.classList.remove('active'));
+    chip.classList.add('active');
+    state.tier = chip.dataset.tier;
+    document.getElementById('gender-filter-group').style.display =
+      (state.tier === 'shared_space' || state.tier === 'shared_room_with_host') ? 'block' : 'none';
+  });
+
+  document.getElementById('gender-chips').addEventListener('click', (e) => {
+    const chip = e.target.closest('.chip-opt');
+    if (!chip) return;
+    document.querySelectorAll('#gender-chips .chip-opt').forEach((c) => c.classList.remove('active'));
+    chip.classList.add('active');
+    state.gender = chip.dataset.gender;
+  });
+
+  document.getElementById('rules-chips').addEventListener('click', (e) => {
+    const chip = e.target.closest('.chip-opt');
+    if (!chip) return;
+    chip.classList.toggle('active');
+    if (chip.classList.contains('active')) state.rules.add(chip.dataset.rule);
+    else state.rules.delete(chip.dataset.rule);
+  });
+
+  document.getElementById('btn-apply').addEventListener('click', () => {
+    state.priceMin = document.getElementById('price-min').value ? Number(document.getElementById('price-min').value) : null;
+    state.priceMax = document.getElementById('price-max').value ? Number(document.getElementById('price-max').value) : null;
+    filtersPanel.classList.remove('open');
+    loadListings();
+  });
+
+  document.getElementById('btn-clear').addEventListener('click', () => {
+    state.tier = ''; state.gender = ''; state.priceMin = null; state.priceMax = null; state.rules.clear();
+    document.querySelectorAll('.chip-opt').forEach((c) => c.classList.remove('active'));
+    document.querySelector('#tier-chips .chip-opt[data-tier=""]').classList.add('active');
+    document.querySelector('#gender-chips .chip-opt[data-gender=""]').classList.add('active');
+    document.getElementById('gender-filter-group').style.display = 'none';
+    document.getElementById('price-min').value = '';
+    document.getElementById('price-max').value = '';
+    loadListings();
+  });
+
+  const listingsEl = document.getElementById('listings');
+  const resultCount = document.getElementById('result-count');
+
+  async function loadListings() {
+    listingsEl.innerHTML = '<p class="empty-note">Loading…</p>';
+    resultCount.textContent = '';
+
+    const params = new URLSearchParams();
+    if (state.area) params.set('city', state.area);
+    if (state.tier) params.set('tier', state.tier);
+    if (state.gender) params.set('gender', state.gender);
+
+    try {
+      const res = await fetch(`/api/listings?${params.toString()}`);
+      const data = await res.json();
+      let results = data.listings || [];
+
+      // Price and house-rule filters aren't supported server-side yet — filtered
+      // client-side here for now (fine at current scale, worth moving server-side later).
+      if (state.priceMin !== null) results = results.filter((l) => l.price_per_night >= state.priceMin);
+      if (state.priceMax !== null) results = results.filter((l) => l.price_per_night <= state.priceMax);
+      state.rules.forEach((rule) => { results = results.filter((l) => l[rule] === 1); });
+
+      renderResults(results);
+    } catch (err) {
+      listingsEl.innerHTML = '<p class="empty-note">Couldn\'t load listings — try again.</p>';
+    }
+  }
+
+  function renderResults(results) {
+    resultCount.textContent = `${results.length} ${results.length === 1 ? 'stay' : 'stays'} found`;
+
+    if (results.length === 0) {
+      listingsEl.innerHTML = '<p class="empty-note">No stays match these filters. Try widening your search.</p>';
+      return;
+    }
+
+    listingsEl.innerHTML = results.map(renderCard).join('');
+  }
+
+  function renderCard(listing) {
+    const isShared = listing.tier !== 'private_room';
+    const tierLabel = listing.tier === 'shared_room_with_host' ? 'Shared Room' : (isShared ? 'Shared Space' : 'Private Room');
+    const genderLabel = listing.gender_allocation === 'female_only' ? 'Women only' : 'Men only';
+    let photos = [];
+    try { photos = listing.photos ? JSON.parse(listing.photos) : []; } catch (e) {}
+    const thumbContent = photos[0]
+      ? `<img src="${photos[0]}" alt="">`
+      : '';
+
+    return `
+      <a href="/listing.html?id=${listing.id}" class="listing-card" style="text-decoration:none; color:inherit;">
+        <div class="listing-thumb">${thumbContent}<div class="type-tag ${isShared ? 'shared' : ''}">${tierLabel}</div></div>
+        <div class="listing-info">
+          <div class="listing-title">${escapeHtml(listing.title)}</div>
+          <div class="listing-meta">${escapeHtml(listing.area)}, ${escapeHtml(listing.city)}</div>
+          <div class="badge-row">
+            ${isShared ? `<div class="mini-badge">${genderLabel}</div>` : ''}
+            <div class="mini-badge">ID verified</div>
+          </div>
+          <div class="listing-price">₦${Number(listing.price_per_night).toLocaleString()} <span>/ night</span></div>
+        </div>
+      </a>
+    `;
+  }
+
+  function escapeHtml(str) {
+    const div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  loadListings();
+</script>
+
+<footer class="tabbar" id="tabbar">
+  <a href="/" class="tab">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 10 9-7 9 7"/><path d="M5 9.5V21h14V9.5"/></svg>
+    Home
+  </a>
+  <a href="/search.html" class="tab active">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+    Search
+  </a>
+  <a href="/login.html" class="tab" id="bookings-tab">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M3 10h18M8 2v4M16 2v4"/></svg>
+    Bookings
+  </a>
+  <a href="/login.html" class="tab" id="chats-tab">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 0 1-8.9 8.4 8.5 8.5 0 0 1-3.8-.9L3 20l1-4.5A8.4 8.4 0 1 1 21 11.5Z"/></svg>
+    Chats
+  </a>
+  <a href="/login.html" class="tab" id="profile-tab">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg>
+    Profile
+  </a>
+</footer>
+
+<script>
+  const navSessionToken = localStorage.getItem('rentshare_session');
+  if (navSessionToken) {
+    document.getElementById('bookings-tab').href = '/bookings.html';
+    document.getElementById('chats-tab').href = '/chats.html';
+    document.getElementById('profile-tab').href = '/profile.html';
+  }
+</script>
+</body>
+</html>

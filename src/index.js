@@ -322,7 +322,57 @@ async function handleApi(request, env, url) {
     return respondCheckout(request, env);
   }
 
+  // GET /api/notifications/summary — badge count of everything needing the user's attention
+  if (pathname === '/api/notifications/summary' && request.method === 'GET') {
+    return notificationsSummary(request, env);
+  }
+
   return json({ error: 'Not found' }, 404);
+}
+
+/**
+ * Aggregates every pending action item across the app into a single
+ * count for the bell icon badge, plus the breakdown behind it. Reuses
+ * the same underlying data as each page's own pending-fetch (booking
+ * requests, presence/check-in/checkout confirmations, unread messages)
+ * rather than tracking a separate notifications table — there's
+ * nothing here that isn't already derivable from existing state.
+ */
+async function notificationsSummary(request, env) {
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: 'Not logged in.' }, 401);
+
+  const [bookingRequests, presence, checkin, checkout, unreadMessages] = await Promise.all([
+    env.DB.prepare(`SELECT COUNT(*) AS c FROM bookings WHERE host_id = ? AND status = 'requested'`).bind(user.id).first(),
+    env.DB.prepare(`
+      SELECT COUNT(*) AS c FROM presence_confirmations pc JOIN bookings b ON pc.booking_id = b.id
+      WHERE b.host_id = ? AND pc.host_response IS NULL
+    `).bind(user.id).first(),
+    env.DB.prepare(`
+      SELECT COUNT(*) AS c FROM bookings b
+      WHERE b.guest_id = ? AND b.status IN ('confirmed', 'presence_confirmed') AND date(b.check_in_date) <= date('now')
+        AND NOT EXISTS (SELECT 1 FROM checkin_confirmations cc WHERE cc.booking_id = b.id)
+    `).bind(user.id).first(),
+    env.DB.prepare(`
+      SELECT COUNT(*) AS c FROM checkout_confirmations cc JOIN bookings b ON cc.booking_id = b.id
+      WHERE cc.response IS NULL AND ((cc.party = 'host' AND b.host_id = ?) OR (cc.party = 'guest' AND b.guest_id = ?))
+    `).bind(user.id, user.id).first(),
+    env.DB.prepare(`
+      SELECT COUNT(*) AS c FROM messages m JOIN bookings b ON m.booking_id = b.id
+      WHERE m.sender_id != ? AND m.read_at IS NULL AND (b.guest_id = ? OR b.host_id = ?)
+    `).bind(user.id, user.id, user.id).first(),
+  ]);
+
+  const breakdown = {
+    booking_requests: bookingRequests.c,
+    presence_pending: presence.c,
+    checkin_pending: checkin.c,
+    checkout_pending: checkout.c,
+    unread_messages: unreadMessages.c,
+  };
+  const total = Object.values(breakdown).reduce((sum, n) => sum + n, 0);
+
+  return json({ total, ...breakdown });
 }
 
 /**

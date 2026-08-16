@@ -604,6 +604,18 @@ async function respondToBooking(request, env, bookingId, action) {
   await env.DB.prepare(`UPDATE bookings SET status = ?, updated_at = ? WHERE id = ?`)
     .bind(newStatus, now, bookingId).run();
 
+  // Accepting one request means these dates are no longer available — any
+  // other still-pending requests for the same listing that overlap this
+  // date range can never be honored, so decline them automatically rather
+  // than leaving guests waiting on a request that can no longer succeed.
+  if (action === 'accept') {
+    await env.DB.prepare(`
+      UPDATE bookings SET status = 'cancelled', updated_at = ?
+      WHERE listing_id = ? AND id != ? AND status = 'requested'
+        AND check_in_date < ? AND check_out_date > ?
+    `).bind(now, booking.listing_id, bookingId, booking.check_out_date, booking.check_in_date).run();
+  }
+
   return json({ id: bookingId, status: newStatus });
 }
 
@@ -1032,6 +1044,23 @@ async function createBooking(request, env) {
   // Cannot be defaulted, bundled, or skipped — the booking is rejected without it.
   if (listing.tier === 'shared_room_with_host' && room_share_consent !== true) {
     return json({ error: 'Explicit consent is required to book a room shared directly with the host.' }, 400);
+  }
+
+  // Double-booking prevention: any booking that's actually been accepted or
+  // is further along (confirmed onward) blocks its dates from new requests.
+  // Multiple pending 'requested' bookings on the same dates are still
+  // allowed — a host may get more than one request before deciding — but
+  // an occupied/confirmed date range can never be requested again.
+  const conflict = await env.DB.prepare(`
+    SELECT id FROM bookings
+    WHERE listing_id = ?
+      AND status IN ('confirmed', 'presence_confirmed', 'presence_unconfirmed', 'checked_in')
+      AND check_in_date < ? AND check_out_date > ?
+    LIMIT 1
+  `).bind(listing_id, check_out_date, check_in_date).first();
+
+  if (conflict) {
+    return json({ error: 'These dates are no longer available for this listing.' }, 409);
   }
 
   const checkIn = new Date(check_in_date);

@@ -51,6 +51,23 @@
   .btn-approve{ background:var(--teal); color:#fff; }
   .btn-reject{ background:transparent; border:1px solid var(--coral); color:var(--coral); }
   .empty-note{ color:var(--muted-2); font-size:13px; text-align:center; padding:40px 0; }
+
+  .admin-tabs{ display:flex; gap:8px; margin-bottom:16px; }
+  .admin-tab-btn{
+    flex:1; text-align:center; padding:10px 8px; border-radius:12px;
+    background:var(--surface); border:1.5px solid var(--line); font-size:12.5px; font-weight:600; color:var(--muted);
+    cursor:pointer;
+  }
+  .admin-tab-btn.active{ background:#FDF1D9; border-color:var(--yellow); color:var(--yellow-text); }
+
+  .flag-reason{
+    background:rgba(209,74,36,0.06); border:1px solid var(--coral); border-radius:10px;
+    padding:10px 12px; font-size:12px; color:#B03A1A; margin-bottom:12px; line-height:1.4;
+  }
+  .btn-reactivate{
+    width:100%; padding:11px; border-radius:10px; border:none; font-weight:700; font-size:13px; cursor:pointer;
+    font-family:'Space Grotesk',sans-serif; background:var(--teal); color:#fff;
+  }
 </style>
 </head>
 <body>
@@ -77,8 +94,12 @@
   </div>
 
   <div id="app">
+    <div class="admin-tabs">
+      <div class="admin-tab-btn active" data-status="pending_review">Pending Review</div>
+      <div class="admin-tab-btn" data-status="paused">Paused</div>
+    </div>
     <div id="listings-container">
-      <p class="empty-note">Loading pending listings…</p>
+      <p class="empty-note">Loading…</p>
     </div>
   </div>
 </div>
@@ -103,15 +124,34 @@
   });
 
   let adminPassword = sessionStorage.getItem('rentshare_admin_pw') || '';
+  let currentStatus = 'pending_review';
+
+  document.querySelectorAll('.admin-tab-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.admin-tab-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentStatus = btn.dataset.status;
+      loadListings(currentStatus);
+    });
+  });
 
   async function tryUnlock(pw) {
-    const res = await fetch('/api/admin/listings?status=pending_review', {
+    const res = await fetch(`/api/admin/listings?status=${currentStatus}`, {
       headers: { 'X-Admin-Password': pw },
     });
     if (res.status === 401) return false;
     const data = await res.json();
     renderListings(data.listings || []);
     return true;
+  }
+
+  async function loadListings(status) {
+    container.innerHTML = '<p class="empty-note">Loading…</p>';
+    const res = await fetch(`/api/admin/listings?status=${status}`, {
+      headers: { 'X-Admin-Password': adminPassword },
+    });
+    const data = await res.json();
+    renderListings(data.listings || []);
   }
 
   unlockBtn.addEventListener('click', async () => {
@@ -130,7 +170,9 @@
 
   function renderListings(listings) {
     if (listings.length === 0) {
-      container.innerHTML = '<p class="empty-note">No listings pending review.</p>';
+      container.innerHTML = currentStatus === 'paused'
+        ? '<p class="empty-note">No paused listings.</p>'
+        : '<p class="empty-note">No listings pending review.</p>';
       return;
     }
     container.innerHTML = listings.map((l) => `
@@ -138,6 +180,7 @@
         <span class="tag">${l.tier.replace(/_/g, ' ')}</span>
         <h3>${escapeHtml(l.title)}</h3>
         <div class="meta-row">${escapeHtml(l.area)}, ${escapeHtml(l.city)} · ₦${Number(l.price_per_night).toLocaleString()}/night</div>
+        ${l.flag_reason ? `<div class="flag-reason"><b>Flagged:</b> ${escapeHtml(l.flag_reason)}</div>` : ''}
         <div class="detail-grid">
           <div><b>Gender:</b> ${l.gender_allocation || '—'}</div>
           <div><b>Lockable:</b> ${l.lockable_door ? 'Yes' : 'No'}</div>
@@ -148,10 +191,13 @@
           <div><b>Parties:</b> ${l.allows_parties ? 'Allowed' : 'No'}</div>
           <div><b>Quiet hours:</b> ${l.quiet_hours_enabled ? (l.quiet_hours || 'Yes') : 'No'}</div>
         </div>
-        <div class="btn-row">
-          <button class="btn-approve" onclick="reviewListing('${l.id}', 'approve')">Approve</button>
-          <button class="btn-reject" onclick="reviewListing('${l.id}', 'reject')">Reject</button>
-        </div>
+        ${currentStatus === 'paused'
+          ? `<button class="btn-reactivate" onclick="reactivateListing('${l.id}')">Reactivate listing</button>`
+          : `<div class="btn-row">
+              <button class="btn-approve" onclick="reviewListing('${l.id}', 'approve')">Approve</button>
+              <button class="btn-reject" onclick="reviewListing('${l.id}', 'reject')">Reject</button>
+            </div>`
+        }
       </div>
     `).join('');
   }
@@ -165,6 +211,24 @@
       document.querySelector(`.listing-card[data-id="${id}"]`).remove();
       if (!container.querySelector('.listing-card')) {
         container.innerHTML = '<p class="empty-note">No listings pending review.</p>';
+      }
+    } else {
+      alert('Something went wrong — try again.');
+    }
+  }
+
+  async function reactivateListing(id) {
+    const confirmed = confirm('Reactivate this listing? It will become bookable again.');
+    if (!confirmed) return;
+
+    const res = await fetch(`/api/admin/listings/${id}/reactivate`, {
+      method: 'POST',
+      headers: { 'X-Admin-Password': adminPassword },
+    });
+    if (res.ok) {
+      document.querySelector(`.listing-card[data-id="${id}"]`).remove();
+      if (!container.querySelector('.listing-card')) {
+        container.innerHTML = '<p class="empty-note">No paused listings.</p>';
       }
     } else {
       alert('Something went wrong — try again.');

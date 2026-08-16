@@ -213,7 +213,82 @@ async function handleApi(request, env, url) {
     return respondPresence(request, env, presenceMatch[1]);
   }
 
+  // GET /api/users/me/checkin-pending — guest's bookings needing check-in confirmation
+  if (pathname === '/api/users/me/checkin-pending' && request.method === 'GET') {
+    return checkinPending(request, env);
+  }
+
+  // POST /api/checkin/respond — guest confirms check-in went fine, or reports a mismatch
+  if (pathname === '/api/checkin/respond' && request.method === 'POST') {
+    return respondCheckin(request, env);
+  }
+
   return json({ error: 'Not found' }, 404);
+}
+
+async function checkinPending(request, env) {
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: 'Not logged in.' }, 401);
+
+  const { results } = await env.DB.prepare(`
+    SELECT b.id AS booking_id, b.check_in_date, b.check_out_date, l.title AS listing_title
+    FROM bookings b
+    JOIN listings l ON b.listing_id = l.id
+    WHERE b.guest_id = ?
+      AND b.status IN ('confirmed', 'presence_confirmed')
+      AND date(b.check_in_date) <= date('now')
+      AND NOT EXISTS (SELECT 1 FROM checkin_confirmations cc WHERE cc.booking_id = b.id)
+    ORDER BY b.check_in_date ASC
+  `).bind(user.id).all();
+
+  return json({ pending: results });
+}
+
+/**
+ * Guest confirms check-in went fine, or reports the household doesn't
+ * match what was listed. A 'no' response is treated as a real safety
+ * event per the flow spec: it always flags the booking + pauses the
+ * listing pending host/admin review, and issues a full refund note —
+ * the frontend is responsible for showing real emergency numbers
+ * BEFORE this ever gets called, this endpoint just records the outcome.
+ */
+async function respondCheckin(request, env) {
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: 'Not logged in.' }, 401);
+
+  const { booking_id, response } = await request.json();
+  if (!booking_id || !['yes', 'no'].includes(response)) {
+    return json({ error: 'Invalid check-in response.' }, 400);
+  }
+
+  const booking = await env.DB.prepare(`SELECT * FROM bookings WHERE id = ?`).bind(booking_id).first();
+  if (!booking || booking.guest_id !== user.id) return json({ error: 'Booking not found.' }, 404);
+
+  const existing = await env.DB.prepare(`SELECT id FROM checkin_confirmations WHERE booking_id = ?`).bind(booking_id).first();
+  if (existing) return json({ error: 'Already responded.' }, 409);
+
+  const now = new Date().toISOString();
+  const id = crypto.randomUUID();
+
+  await env.DB.prepare(`
+    INSERT INTO checkin_confirmations (id, booking_id, checked_in_at, household_match_response, response_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).bind(id, booking_id, now, response, now).run();
+
+  if (response === 'no') {
+    await env.DB.prepare(`UPDATE bookings SET status = 'flagged', updated_at = ? WHERE id = ?`).bind(now, booking_id).run();
+    await env.DB.prepare(`UPDATE listings SET status = 'paused', updated_at = ? WHERE id = ?`).bind(now, booking.listing_id).run();
+
+    const flagId = crypto.randomUUID();
+    await env.DB.prepare(`
+      INSERT INTO safety_flags (id, booking_id, raised_by, flag_type, description, status, created_at)
+      VALUES (?, ?, 'guest', 'checkin_mismatch', 'Guest reported the household or space does not match what was listed at check-in. Full refund applies pending review.', 'pending_review', ?)
+    `).bind(flagId, booking_id, now).run();
+  } else {
+    await env.DB.prepare(`UPDATE bookings SET status = 'checked_in', updated_at = ? WHERE id = ?`).bind(now, booking_id).run();
+  }
+
+  return json({ booking_id, response });
 }
 
 async function presencePending(request, env) {

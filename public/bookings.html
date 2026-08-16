@@ -65,6 +65,33 @@
   }
   .presence-btn.same{ background:var(--teal); color:#fff; }
   .presence-btn.changed{ background:transparent; border:1px solid var(--coral); color:var(--coral); }
+
+  .checkin-card{
+    background:var(--surface); border:1.5px solid var(--teal); border-radius:16px;
+    padding:14px 16px; margin-bottom:16px;
+  }
+  .checkin-card-title{ font-size:13px; font-weight:700; color:#1F6E5E; margin-bottom:4px; }
+  .checkin-card-sub{ font-size:12px; color:var(--ink); margin-bottom:12px; line-height:1.4; }
+
+  .safety-panel{
+    background:rgba(209,74,36,0.06); border:1.5px solid var(--coral); border-radius:14px;
+    padding:14px; margin-top:10px;
+  }
+  .safety-panel-title{ font-size:13px; font-weight:700; color:#B03A1A; margin-bottom:8px; }
+  .safety-numbers{ display:flex; flex-direction:column; gap:6px; margin-bottom:12px; }
+  .safety-number-row{
+    display:flex; justify-content:space-between; align-items:center; background:#fff;
+    border-radius:10px; padding:9px 12px; font-size:12.5px;
+  }
+  .safety-number-row a{ color:#B03A1A; font-weight:700; text-decoration:none; }
+  .safety-panel-note{ font-size:11.5px; color:var(--muted); margin-bottom:12px; line-height:1.4; }
+  .safety-confirm-btn{
+    width:100%; background:var(--coral); color:#fff; border:none; border-radius:10px;
+    padding:11px; font-weight:700; font-size:12.5px; cursor:pointer; font-family:'Space Grotesk',sans-serif;
+  }
+  .safety-cancel-link{
+    display:block; text-align:center; margin-top:8px; font-size:11.5px; color:var(--muted); cursor:pointer;
+  }
 </style>
 </head>
 <body>
@@ -78,6 +105,7 @@
   </div>
 
   <div id="presence-alert"></div>
+  <div id="checkin-alert"></div>
 
   <div class="tabs">
     <div class="tab-btn active" data-view="guest">My Trips</div>
@@ -98,6 +126,73 @@
   } else {
     loadBookings();
     loadPresencePending();
+    loadCheckinPending();
+  }
+
+  async function loadCheckinPending() {
+    const alertBox = document.getElementById('checkin-alert');
+    try {
+      const res = await fetch('/api/users/me/checkin-pending', { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return;
+      const data = await res.json();
+      const pending = data.pending || [];
+
+      if (pending.length === 0) {
+        alertBox.innerHTML = '';
+        return;
+      }
+
+      alertBox.innerHTML = pending.map((p) => `
+        <div class="checkin-card" id="checkin-${p.booking_id}">
+          <div class="checkin-card-title">Checking in — ${escapeHtml(p.listing_title)}</div>
+          <div class="checkin-card-sub">Have you arrived, and does everything match what was listed?</div>
+          <div class="presence-actions">
+            <button class="presence-btn same" onclick="submitCheckin('${p.booking_id}', 'yes')">Yes, all good</button>
+            <button class="presence-btn changed" onclick="showSafetyPanel('${p.booking_id}')">Something's different</button>
+          </div>
+          <div id="safety-panel-${p.booking_id}"></div>
+        </div>
+      `).join('');
+    } catch (err) {
+      // Silent — secondary panel, not worth breaking the whole page over.
+    }
+  }
+
+  // Showing this panel does NOT submit anything yet — it only surfaces
+  // real emergency contacts first, per the flow spec. Ending the stay
+  // is a separate, deliberate confirm action below.
+  function showSafetyPanel(bookingId) {
+    document.getElementById(`safety-panel-${bookingId}`).innerHTML = `
+      <div class="safety-panel">
+        <div class="safety-panel-title">If you're in immediate danger, get help now</div>
+        <div class="safety-numbers">
+          <div class="safety-number-row"><span>Nigeria Emergency Line</span><a href="tel:112">Call 112</a></div>
+          <div class="safety-number-row"><span>Police (NPF)</span><a href="tel:199">Call 199</a></div>
+        </div>
+        <div class="safety-panel-note">If you're safe but the space doesn't match what was listed, you can end this stay below. This flags your host's listing for review and applies a full refund.</div>
+        <button class="safety-confirm-btn" onclick="submitCheckin('${bookingId}', 'no')">I'm safe — end my stay, this doesn't match</button>
+        <div class="safety-cancel-link" onclick="hideSafetyPanel('${bookingId}')">Never mind, go back</div>
+      </div>
+    `;
+  }
+
+  function hideSafetyPanel(bookingId) {
+    document.getElementById(`safety-panel-${bookingId}`).innerHTML = '';
+  }
+
+  async function submitCheckin(bookingId, response) {
+    try {
+      const res = await fetch('/api/checkin/respond', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ booking_id: bookingId, response }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      await loadCheckinPending();
+      await loadBookings();
+    } catch (err) {
+      alert("Couldn't submit your response — try again.");
+    }
   }
 
   async function loadPresencePending() {

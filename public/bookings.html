@@ -92,6 +92,20 @@
   .safety-cancel-link{
     display:block; text-align:center; margin-top:8px; font-size:11.5px; color:var(--muted); cursor:pointer;
   }
+
+  .checkout-card{
+    background:var(--surface); border:1.5px solid var(--line); border-radius:16px;
+    padding:14px 16px; margin-bottom:16px;
+  }
+  .checkout-card-title{ font-size:13px; font-weight:700; color:var(--ink); margin-bottom:4px; }
+  .checkout-card-sub{ font-size:12px; color:var(--muted); margin-bottom:12px; line-height:1.4; }
+  .checkout-btn{
+    flex:1; padding:10px; border-radius:10px; font-weight:700; font-size:12.5px; cursor:pointer;
+    font-family:'Space Grotesk',sans-serif; border:none;
+  }
+  .checkout-btn.good{ background:var(--teal); color:#fff; }
+  .checkout-btn.issue{ background:transparent; border:1px solid var(--coral); color:var(--coral); }
+  .checkout-submitted-note{ font-size:12px; color:#1F6E5E; background:rgba(47,138,122,0.08); border-radius:10px; padding:10px 12px; }
 </style>
 </head>
 <body>
@@ -106,6 +120,7 @@
 
   <div id="presence-alert"></div>
   <div id="checkin-alert"></div>
+  <div id="checkout-alert"></div>
 
   <div class="tabs">
     <div class="tab-btn active" data-view="guest">My Trips</div>
@@ -127,6 +142,7 @@
     loadBookings();
     loadPresencePending();
     loadCheckinPending();
+    loadCheckoutPending();
   }
 
   async function loadCheckinPending() {
@@ -189,6 +205,58 @@
       });
       if (!res.ok) throw new Error('Failed');
       await loadCheckinPending();
+      await loadBookings();
+    } catch (err) {
+      alert("Couldn't submit your response — try again.");
+    }
+  }
+
+  async function loadCheckoutPending() {
+    const alertBox = document.getElementById('checkout-alert');
+    try {
+      const res = await fetch('/api/users/me/checkout-pending', { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) return;
+      const data = await res.json();
+      const pending = data.pending || [];
+
+      if (pending.length === 0) {
+        alertBox.innerHTML = '';
+        return;
+      }
+
+      // Each card is per-role (host confirms the property, guest confirms
+      // their belongings) — the wording differs slightly but the action
+      // is the same. Neither side ever sees the other's answer here.
+      alertBox.innerHTML = pending.map((p) => `
+        <div class="checkout-card">
+          <div class="checkout-card-title">Checking out — ${escapeHtml(p.listing_title)}</div>
+          <div class="checkout-card-sub">${p.party === 'host'
+            ? "Confirm the property's condition is all good after this stay."
+            : "Confirm you've got all your belongings and everything's in order."}</div>
+          <div class="presence-actions">
+            <button class="checkout-btn good" onclick="submitCheckout('${p.checkout_id}', 'all_good')">All good</button>
+            <button class="checkout-btn issue" onclick="submitCheckout('${p.checkout_id}', 'report_issue')">Report an issue</button>
+          </div>
+        </div>
+      `).join('');
+    } catch (err) {
+      // Silent — secondary panel, not worth breaking the whole page over.
+    }
+  }
+
+  async function submitCheckout(checkoutId, response) {
+    if (response === 'report_issue') {
+      const confirmed = confirm('This will send the booking for review. Continue?');
+      if (!confirmed) return;
+    }
+    try {
+      const res = await fetch('/api/checkout/respond', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ checkout_id: checkoutId, response }),
+      });
+      if (!res.ok) throw new Error('Failed');
+      await loadCheckoutPending();
       await loadBookings();
     } catch (err) {
       alert("Couldn't submit your response — try again.");

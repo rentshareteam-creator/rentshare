@@ -29,16 +29,29 @@ if (sessionToken) {
   if (chatsTab) chatsTab.href = '/chats.html';
 }
 
-// Notification bell — links to login when signed out, same as account.
-// Once signed in, there's no notifications page yet, so it's a
-// placeholder tap rather than a dead link or a redirect to login.
+// Notification bell — links to login when signed out. Once signed in,
+// it links to the real notifications page and shows a live badge count
+// pulled from /api/notifications/summary.
 const notifBtn = document.getElementById('notif-btn');
 if (notifBtn && sessionToken) {
-  notifBtn.removeAttribute('href');
-  notifBtn.addEventListener('click', (e) => {
-    e.preventDefault();
-    alert('Notifications for new bookings and messages are coming soon.');
-  });
+  notifBtn.href = '/notifications.html';
+  loadNotificationBadge(notifBtn, sessionToken);
+}
+
+async function loadNotificationBadge(btn, token) {
+  try {
+    const res = await fetch('/api/notifications/summary', { headers: { Authorization: `Bearer ${token}` } });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (data.total > 0) {
+      const badge = document.createElement('span');
+      badge.className = 'notif-badge';
+      badge.textContent = data.total > 9 ? '9+' : data.total;
+      btn.appendChild(badge);
+    }
+  } catch (err) {
+    // Silent — badge is a nice-to-have, not worth breaking the page over.
+  }
 }
 
 typeTabs.forEach((tab) => {

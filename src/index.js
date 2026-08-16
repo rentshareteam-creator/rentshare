@@ -1185,25 +1185,126 @@ async function verifyBank(request, env) {
   }
 
   const resolvedName = data.data.account_name;
-
-  // TODO: replace this naive check with real fuzzy matching
-  // (e.g. Jaro-Winkler or token-set comparison) per the flow spec's
-  // "bank name vs ID document name" required-match rule.
-  const isCloseMatch = namesRoughlyMatch(resolvedName, full_name);
+  const { status: match_status, score: match_score } = compareNames(resolvedName, full_name);
 
   return json({
     resolved_name: resolvedName,
-    match_status: isCloseMatch ? 'matched' : 'flagged',
+    match_status,
+    match_score,
   });
 }
 
-function namesRoughlyMatch(a, b) {
-  const normalize = (s) => s.toLowerCase().replace(/[^a-z\s]/g, '').split(/\s+/).filter(Boolean);
-  const tokensA = new Set(normalize(a));
-  const tokensB = new Set(normalize(b));
-  let overlap = 0;
-  for (const t of tokensA) if (tokensB.has(t)) overlap++;
-  return overlap >= 2; // at least first + last name token overlap
+/**
+ * Real fuzzy name matching, replacing the earlier naive token-overlap
+ * check. Combines two signals and takes the best of the two:
+ *   1. Jaro-Winkler similarity on the full normalized name (catches
+ *      typos, transposed letters, minor spelling differences).
+ *   2. Best-alignment token matching (each name split into words,
+ *      each word matched to its closest counterpart in the other
+ *      name) — this is what actually handles the common real-world
+ *      case here: Nigerian bank accounts are often registered with a
+ *      different word order or an extra middle name than what's on
+ *      an ID or a signup form, which a plain full-string comparison
+ *      would wrongly penalize.
+ * Three outcomes instead of the old binary matched/not-matched:
+ * 'matched' (high confidence, no human needed), 'needs_review' (real
+ * name overlap but not confident enough to auto-clear), 'flagged'
+ * (looks like a genuine mismatch). Thresholds are a starting point —
+ * worth tuning once there's real match data to look at.
+ */
+function compareNames(a, b) {
+  const normalize = (s) => (s || '').toLowerCase().replace(/[^a-z\s]/g, '').replace(/\s+/g, ' ').trim();
+  const nameA = normalize(a);
+  const nameB = normalize(b);
+
+  if (!nameA || !nameB) return { status: 'flagged', score: 0 };
+
+  const fullNameScore = jaroWinkler(nameA, nameB);
+
+  const tokensA = nameA.split(' ').filter(Boolean);
+  const tokensB = nameB.split(' ').filter(Boolean);
+  const tokenScore = bestTokenAlignmentScore(tokensA, tokensB);
+
+  const combined = Math.max(fullNameScore, tokenScore);
+  const score = Math.round(combined * 100) / 100;
+
+  let status;
+  if (combined >= 0.88) status = 'matched';
+  else if (combined >= 0.7) status = 'needs_review';
+  else status = 'flagged';
+
+  return { status, score };
+}
+
+/**
+ * For each word in the shorter name, finds its best Jaro-Winkler match
+ * among the words in the longer name, then averages those best
+ * matches. This is what lets "John Adebayo Okafor" and "Okafor John A"
+ * score highly despite being in a completely different order.
+ */
+function bestTokenAlignmentScore(tokensA, tokensB) {
+  const [shorter, longer] = tokensA.length <= tokensB.length ? [tokensA, tokensB] : [tokensB, tokensA];
+  if (shorter.length === 0 || longer.length === 0) return 0;
+
+  let total = 0;
+  for (const token of shorter) {
+    let best = 0;
+    for (const other of longer) {
+      const s = jaroWinkler(token, other);
+      if (s > best) best = s;
+    }
+    total += best;
+  }
+  return total / shorter.length;
+}
+
+/** Standard Jaro similarity between two strings, 0 to 1. */
+function jaroSimilarity(s1, s2) {
+  if (s1 === s2) return 1;
+  const len1 = s1.length;
+  const len2 = s2.length;
+  if (len1 === 0 || len2 === 0) return 0;
+
+  const matchDistance = Math.floor(Math.max(len1, len2) / 2) - 1;
+  const s1Matches = new Array(len1).fill(false);
+  const s2Matches = new Array(len2).fill(false);
+
+  let matches = 0;
+  for (let i = 0; i < len1; i++) {
+    const start = Math.max(0, i - matchDistance);
+    const end = Math.min(i + matchDistance + 1, len2);
+    for (let j = start; j < end; j++) {
+      if (s2Matches[j] || s1[i] !== s2[j]) continue;
+      s1Matches[i] = true;
+      s2Matches[j] = true;
+      matches++;
+      break;
+    }
+  }
+  if (matches === 0) return 0;
+
+  let transpositions = 0;
+  let k = 0;
+  for (let i = 0; i < len1; i++) {
+    if (!s1Matches[i]) continue;
+    while (!s2Matches[k]) k++;
+    if (s1[i] !== s2[k]) transpositions++;
+    k++;
+  }
+
+  return (matches / len1 + matches / len2 + (matches - transpositions / 2) / matches) / 3;
+}
+
+/** Jaro-Winkler: Jaro similarity boosted for strings sharing a common prefix. */
+function jaroWinkler(s1, s2, prefixWeight = 0.1) {
+  const jaro = jaroSimilarity(s1, s2);
+  let prefixLen = 0;
+  const maxPrefix = 4;
+  for (let i = 0; i < Math.min(maxPrefix, s1.length, s2.length); i++) {
+    if (s1[i] === s2[i]) prefixLen++;
+    else break;
+  }
+  return jaro + prefixLen * prefixWeight * (1 - jaro);
 }
 
 function json(data, status = 200) {

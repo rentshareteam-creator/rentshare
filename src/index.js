@@ -35,6 +35,7 @@ export default {
   // auto-flagged — silence stays neutral, per the finalized flow spec).
   async scheduled(event, env, ctx) {
     ctx.waitUntil(runPresenceConfirmationSweep(env));
+    ctx.waitUntil(runCheckoutConfirmationSweep(env));
   },
 };
 
@@ -105,6 +106,88 @@ async function runPresenceConfirmationSweep(env) {
   }
 }
 
+/**
+ * Runs alongside the presence sweep. Handles the final safety-flow
+ * step: pre-checkout confirmation. Host confirms property condition,
+ * guest confirms belongings — answers stay hidden from each other
+ * until both have responded (this endpoint never exposes one party's
+ * answer to the other). No deadline_at column exists on this table,
+ * so the 2h grace period from the flow spec is computed from
+ * triggered_at instead of an exact checkout time (which isn't
+ * tracked anywhere in the schema).
+ */
+async function runCheckoutConfirmationSweep(env) {
+  const now = new Date();
+  const nowIso = now.toISOString();
+
+  // 1. Trigger prompts for checked-in bookings whose checkout date has arrived,
+  //    for whichever party (host/guest) doesn't have a row yet.
+  const dueBookings = await env.DB.prepare(`
+    SELECT id, host_id, guest_id FROM bookings
+    WHERE status = 'checked_in' AND date(check_out_date) <= date('now')
+  `).all();
+
+  for (const booking of dueBookings.results) {
+    for (const party of ['host', 'guest']) {
+      const existing = await env.DB.prepare(`SELECT id FROM checkout_confirmations WHERE booking_id = ? AND party = ?`)
+        .bind(booking.id, party).first();
+      if (!existing) {
+        const id = crypto.randomUUID();
+        await env.DB.prepare(`INSERT INTO checkout_confirmations (id, booking_id, party, triggered_at) VALUES (?, ?, ?, ?)`)
+          .bind(id, booking.id, party, nowIso).run();
+      }
+    }
+  }
+
+  // 2. Mark unanswered prompts past their 2h grace window as no_response —
+  //    silence stays neutral here too, same principle as presence confirmation.
+  await env.DB.prepare(`
+    UPDATE checkout_confirmations
+    SET response = 'no_response', response_at = ?
+    WHERE response IS NULL AND (julianday('now') - julianday(triggered_at)) >= (2.0 / 24.0)
+  `).bind(nowIso).run();
+
+  // 3. Finalize any booking where both parties have now responded (for real,
+  //    or via no_response above). A report from either side sends the
+  //    booking to human review as 'disputed'; otherwise it's 'completed'.
+  const readyToFinalize = await env.DB.prepare(`
+    SELECT b.id AS booking_id,
+      MAX(CASE WHEN cc.party = 'host' THEN cc.response END) AS host_response,
+      MAX(CASE WHEN cc.party = 'guest' THEN cc.response END) AS guest_response,
+      COUNT(cc.id) AS row_count
+    FROM bookings b
+    JOIN checkout_confirmations cc ON cc.booking_id = b.id
+    WHERE b.status = 'checked_in'
+    GROUP BY b.id
+    HAVING row_count = 2 AND host_response IS NOT NULL AND guest_response IS NOT NULL
+  `).all();
+
+  for (const row of readyToFinalize.results) {
+    const eitherReportedIssue = row.host_response === 'report_issue' || row.guest_response === 'report_issue';
+
+    if (eitherReportedIssue) {
+      await env.DB.prepare(`UPDATE bookings SET status = 'disputed', updated_at = ? WHERE id = ?`)
+        .bind(nowIso, row.booking_id).run();
+
+      const bothReported = row.host_response === 'report_issue' && row.guest_response === 'report_issue';
+      const flagId = crypto.randomUUID();
+      await env.DB.prepare(`
+        INSERT INTO safety_flags (id, booking_id, raised_by, flag_type, description, status, created_at)
+        VALUES (?, ?, 'system', 'checkout_dispute', ?, 'pending_review', ?)
+      `).bind(
+        flagId, row.booking_id,
+        bothReported
+          ? 'Both host and guest reported an issue at checkout — priority review.'
+          : 'One party reported an issue at checkout.',
+        nowIso
+      ).run();
+    } else {
+      await env.DB.prepare(`UPDATE bookings SET status = 'completed', updated_at = ? WHERE id = ?`)
+        .bind(nowIso, row.booking_id).run();
+    }
+  }
+}
+
 async function handleApi(request, env, url) {
   const { pathname } = url;
 
@@ -143,6 +226,12 @@ async function handleApi(request, env, url) {
   const adminActionMatch = pathname.match(/^\/api\/admin\/listings\/([\w-]+)\/(approve|reject)$/);
   if (adminActionMatch && request.method === 'POST') {
     return adminReviewListing(request, env, adminActionMatch[1], adminActionMatch[2]);
+  }
+
+  // POST /api/admin/listings/:id/reactivate — un-pause a listing after review
+  const adminReactivateMatch = pathname.match(/^\/api\/admin\/listings\/([\w-]+)\/reactivate$/);
+  if (adminReactivateMatch && request.method === 'POST') {
+    return adminReactivateListing(request, env, adminReactivateMatch[1]);
   }
 
   // POST /api/photos/upload — host uploads a listing photo to R2
@@ -223,7 +312,67 @@ async function handleApi(request, env, url) {
     return respondCheckin(request, env);
   }
 
+  // GET /api/users/me/checkout-pending — logged-in user's unanswered checkout prompts
+  if (pathname === '/api/users/me/checkout-pending' && request.method === 'GET') {
+    return checkoutPending(request, env);
+  }
+
+  // POST /api/checkout/respond — host or guest confirms checkout, or reports an issue
+  if (pathname === '/api/checkout/respond' && request.method === 'POST') {
+    return respondCheckout(request, env);
+  }
+
   return json({ error: 'Not found' }, 404);
+}
+
+/**
+ * Returns pending checkout prompts for the logged-in user, whichever
+ * role (host or guest) they hold on each booking. Never includes the
+ * other party's response — this endpoint only ever looks up the
+ * caller's own row, so there's nothing to leak even by omission.
+ */
+async function checkoutPending(request, env) {
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: 'Not logged in.' }, 401);
+
+  const { results } = await env.DB.prepare(`
+    SELECT cc.id AS checkout_id, cc.booking_id, cc.party, l.title AS listing_title, b.check_out_date
+    FROM checkout_confirmations cc
+    JOIN bookings b ON cc.booking_id = b.id
+    JOIN listings l ON b.listing_id = l.id
+    WHERE cc.response IS NULL
+      AND ((cc.party = 'host' AND b.host_id = ?) OR (cc.party = 'guest' AND b.guest_id = ?))
+    ORDER BY b.check_out_date ASC
+  `).bind(user.id, user.id).all();
+
+  return json({ pending: results });
+}
+
+async function respondCheckout(request, env) {
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: 'Not logged in.' }, 401);
+
+  const { checkout_id, response } = await request.json();
+  if (!checkout_id || !['all_good', 'report_issue'].includes(response)) {
+    return json({ error: 'Invalid checkout response.' }, 400);
+  }
+
+  const row = await env.DB.prepare(`
+    SELECT cc.*, b.host_id, b.guest_id FROM checkout_confirmations cc
+    JOIN bookings b ON cc.booking_id = b.id
+    WHERE cc.id = ?
+  `).bind(checkout_id).first();
+
+  if (!row) return json({ error: 'Not found.' }, 404);
+  const expectedUserId = row.party === 'host' ? row.host_id : row.guest_id;
+  if (expectedUserId !== user.id) return json({ error: 'Not authorized.' }, 403);
+  if (row.response !== null) return json({ error: 'Already responded.' }, 409);
+
+  const now = new Date().toISOString();
+  await env.DB.prepare(`UPDATE checkout_confirmations SET response = ?, response_at = ? WHERE id = ?`)
+    .bind(response, now, checkout_id).run();
+
+  return json({ checkout_id, response });
 }
 
 async function checkinPending(request, env) {
@@ -685,7 +834,14 @@ async function adminListListings(request, env, url) {
   if (!checkAdminAuth(request, env)) return json({ error: 'Unauthorized' }, 401);
 
   const status = url.searchParams.get('status') || 'pending_review';
-  const { results } = await env.DB.prepare(`SELECT * FROM listings WHERE status = ? ORDER BY created_at ASC`).bind(status).all();
+  const { results } = await env.DB.prepare(`
+    SELECT l.*,
+      (SELECT sf.description FROM safety_flags sf
+       JOIN bookings b ON sf.booking_id = b.id
+       WHERE b.listing_id = l.id AND sf.status = 'pending_review'
+       ORDER BY sf.created_at DESC LIMIT 1) AS flag_reason
+    FROM listings l WHERE l.status = ? ORDER BY l.created_at ASC
+  `).bind(status).all();
   return json({ listings: results });
 }
 
@@ -703,6 +859,26 @@ async function adminReviewListing(request, env, id, action) {
   }
 
   return json({ id, status: newStatus });
+}
+
+/**
+ * Reactivates a listing that was auto-paused after a guest reported a
+ * check-in mismatch. This was a real gap: the check-in flow could pause
+ * a listing but nothing could ever bring it back to active — this is
+ * that missing path back.
+ */
+async function adminReactivateListing(request, env, id) {
+  if (!checkAdminAuth(request, env)) return json({ error: 'Unauthorized' }, 401);
+
+  const now = new Date().toISOString();
+  const result = await env.DB.prepare(`UPDATE listings SET status = 'active', updated_at = ? WHERE id = ? AND status = 'paused'`)
+    .bind(now, id).run();
+
+  if (result.meta.changes === 0) {
+    return json({ error: 'Listing not found or not currently paused.' }, 404);
+  }
+
+  return json({ id, status: 'active' });
 }
 
 /**

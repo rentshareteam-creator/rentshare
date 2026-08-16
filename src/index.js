@@ -327,7 +327,34 @@ async function handleApi(request, env, url) {
     return notificationsSummary(request, env);
   }
 
+  // POST /api/users/me/profile-photo — save the URL of an already-uploaded photo to the profile
+  if (pathname === '/api/users/me/profile-photo' && request.method === 'POST') {
+    return updateProfilePhoto(request, env);
+  }
+
   return json({ error: 'Not found' }, 404);
+}
+
+/**
+ * Saves a profile photo URL to the logged-in user's record. The actual
+ * upload happens via the existing /api/photos/upload endpoint (same
+ * R2 bucket used for listing photos) — this just links the resulting
+ * URL to the user, so no duplicate upload logic is needed.
+ */
+async function updateProfilePhoto(request, env) {
+  const user = await getSessionUser(request, env);
+  if (!user) return json({ error: 'Not logged in.' }, 401);
+
+  const { photo_url } = await request.json();
+  if (!photo_url || typeof photo_url !== 'string') {
+    return json({ error: 'A photo URL is required.' }, 400);
+  }
+
+  const now = new Date().toISOString();
+  await env.DB.prepare(`UPDATE users SET profile_photo_url = ?, updated_at = ? WHERE id = ?`)
+    .bind(photo_url, now, user.id).run();
+
+  return json({ profile_photo_url: photo_url });
 }
 
 /**
